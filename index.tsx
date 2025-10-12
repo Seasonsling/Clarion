@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 // --- Data Interfaces for Users and Collaboration ---
@@ -434,14 +435,19 @@ class TimelineApp {
 
   // --- API HELPERS ---
   private async fetchWithAuth(url: string, options: RequestInit = {}): Promise<any> {
-    if (!this.state.currentUser?.token) {
+    const tokenFromState = this.state.currentUser?.token;
+    const hasTokenInOptions = options.headers && 'Authorization' in options.headers;
+
+    if (!tokenFromState && !hasTokenInOptions) {
         throw new Error("Authentication token not found.");
     }
+
     const headers = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.state.currentUser.token}`,
-        ...options.headers,
+        'Authorization': `Bearer ${tokenFromState}`, // Default to state
+        ...options.headers, // Override if provided
     };
+
     const response = await fetch(url, { ...options, headers });
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: response.statusText }));
@@ -454,11 +460,15 @@ class TimelineApp {
   }
 
   private fetchProjects(token: string): Promise<时间轴数据[]> {
-    return this.fetchWithAuth('/api/projects');
+    return this.fetchWithAuth('/api/projects', {
+        headers: { Authorization: `Bearer ${token}` }
+    });
   }
 
   private fetchAllUsers(token: string): Promise<User[]> {
-     return this.fetchWithAuth('/api/users');
+     return this.fetchWithAuth('/api/users', {
+        headers: { Authorization: `Bearer ${token}` }
+     });
   }
 
   private createProject(projectData: 时间轴数据): Promise<时间轴数据> {
@@ -2566,6 +2576,7 @@ ${JSON.stringify(this.state.timeline)}
                             const priorityB = priorityMap[b.优先级 || '中'] || 0;
                             return priorityB - priorityA;
                         case 'name':
+                            // FIX: The `a` and `b` variables are of type `任务` and have the `任务名称` property directly.
                             return a.任务名称.localeCompare(b.任务名称);
                         default: return 0;
                     }
