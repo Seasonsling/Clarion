@@ -1786,6 +1786,7 @@ ${JSON.stringify(this.state.timeline)}
       this.renderFilterSortControls();
       this.renderChat();
       
+      this.timelineContainer.onwheel = null; // Clear wheel listeners before re-rendering view.
       if (this.state.currentView !== 'dependencies') {
           this.timelineContainer.innerHTML = "";
           this.timelineContainer.className = `${this.state.currentView}-view`;
@@ -2127,18 +2128,6 @@ ${JSON.stringify(this.state.timeline)}
 
       if (phase.任务) {
           contentEl.appendChild(this.createTasksList(phase.任务, { phaseIndex }, [], canEdit));
-      }
-      
-      if (!isCollapsed) {
-          const childCount = (phase.任务?.length || 0) + (phase.项目?.length || 0);
-          if (childCount > 0) {
-              const totalHeight = Array.from(contentEl.children).reduce((acc, el) => acc + (el as HTMLElement).offsetHeight, 0);
-              contentEl.style.maxHeight = `${totalHeight}px`;
-          } else {
-              contentEl.style.maxHeight = '0px';
-          }
-      } else {
-          contentEl.style.maxHeight = '0px';
       }
 
       phaseEl.appendChild(contentEl);
@@ -2571,9 +2560,13 @@ ${JSON.stringify(this.state.timeline)}
     // --- GANTT CHART VIEW ---
     private renderGanttChart(): void {
         const handleWheel = (e: WheelEvent) => {
-            e.preventDefault();
-            const newZoom = this.state.ganttZoomLevel - e.deltaY * 0.1;
-            this.setState({ ganttZoomLevel: Math.max(10, Math.min(200, newZoom)) });
+            if (e.ctrlKey) {
+                e.preventDefault();
+                const zoomAmount = e.deltaY > 0 ? -10 : 10;
+                const newZoom = this.state.ganttZoomLevel + zoomAmount;
+                this.setState({ ganttZoomLevel: Math.max(10, Math.min(200, newZoom)) });
+            }
+            // If ctrlKey is not pressed, do nothing, allowing default scroll behavior.
         };
         this.timelineContainer.onwheel = handleWheel;
     

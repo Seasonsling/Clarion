@@ -1,26 +1,26 @@
 :root {
-  --background-color: #fbfaf8;
+  --background-color: #fffaf0; /* Floral White - warmer */
   --primary-color: #ffffff;
-  --secondary-color: #f5f2ed;
-  --accent-color: #4a5568; /* Slate Blue */
-  --accent-color-light: #c0a062; /* Muted Gold/Brass */
-  --success-color: #48bb78;
-  --text-primary: #2d3748; /* Ink Blue/Dark Gray */
-  --text-secondary: #718096; /* Lighter Slate */
-  --border-color: #e2e8f0;
-  --shadow-color: rgba(45, 55, 72, 0.1);
+  --secondary-color: #fdf5e6; /* Old Lace - warm beige */
+  --accent-color: #c85a19; /* Terracotta/Burnt Orange */
+  --accent-color-light: #f9a825; /* Sunny Yellow */
+  --success-color: #2e7d32; /* Warmer Green */
+  --text-primary: #4e342e; /* Dark Brown */
+  --text-secondary: #795548; /* Mid-tone Brown */
+  --border-color: #d7ccc8; /* Brownish Gray */
+  --shadow-color: rgba(121, 85, 72, 0.1); /* Brown-based shadow */
   --font-family: 'Noto Serif SC', serif;
-  --danger-color: #e53e3e;
-  --kanban-todo: #a0aec0;
-  --kanban-inprogress: #4299e1;
+  --danger-color: #d32f2f; /* Deeper Red */
+  --kanban-todo: #bcaaa4; /* Warm Gray/Taupe */
+  --kanban-inprogress: #ffb74d; /* Warm Orange */
   --kanban-completed: var(--success-color);
-  --priority-high-color: #f56565;
-  --priority-medium-color: #ed8936;
-  --priority-low-color: #4299e1;
-  --workload-low: #a0aec0;
-  --workload-medium: #ecc94b;
-  --workload-high: #f56565;
-  --critical-path-color: #9f7aea;
+  --priority-high-color: var(--danger-color);
+  --priority-medium-color: #ffa726; /* Bright Orange */
+  --priority-low-color: #66bb6a; /* Soft Green */
+  --workload-low: #ffe0b2; /* Light Warm Orange */
+  --workload-medium: var(--priority-medium-color);
+  --workload-high: var(--priority-high-color);
+  --critical-path-color: #ab47bc; /* Warm Purple/Magenta */
 }
 
 * {
@@ -60,7 +60,7 @@ body {
   border: 2px solid var(--secondary-color);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #a9894e;
+  background-color: #e49b20;
 }
 
 
@@ -155,7 +155,7 @@ body {
 #register-form input:focus {
     outline: none;
     border-color: var(--accent-color-light);
-    box-shadow: 0 0 0 3px rgba(192, 160, 98, 0.3);
+    box-shadow: 0 0 0 3px rgba(249, 168, 37, 0.3);
 }
 
 .error-message {
@@ -214,7 +214,7 @@ textarea#project-input:focus,
 textarea#quick-add-input:focus {
   outline: none;
   border-color: var(--accent-color-light);
-  box-shadow: 0 0 0 4px rgba(192, 160, 98, 0.3);
+  box-shadow: 0 0 0 4px rgba(249, 168, 37, 0.3);
 }
 
 .button-group {
@@ -248,7 +248,7 @@ textarea#quick-add-input:focus {
 
 .primary-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  background-color: #384252;
+  background-color: #af4d15;
   box-shadow: 0 7px 14px rgba(50,50,93,.1), 0 3px 6px rgba(0,0,0,.08);
 }
 
@@ -257,7 +257,7 @@ textarea#quick-add-input:focus {
 }
 
 .primary-btn:disabled {
-  background-color: #a0aec0;
+  background-color: #bcaaa4;
   cursor: not-allowed;
 }
 
@@ -283,7 +283,7 @@ textarea#quick-add-input:focus {
 }
 .secondary-btn.danger:hover {
     border-color: var(--danger-color);
-    background-color: #fff5f5;
+    background-color: #ff F8f8;
 }
 
 .icon {
@@ -387,7 +387,7 @@ textarea#quick-add-input:focus {
 #quick-add-form input:focus {
     outline: none;
     border-color: var(--accent-color-light);
-    box-shadow: 0 0 0 3px rgba(192, 160, 98, 0.3);
+    box-shadow: 0 0 0 3px rgba(249, 168, 37, 0.3);
 }
 
 #quick-add-form #quick-add-btn {
@@ -779,12 +779,13 @@ textarea#quick-add-input:focus {
 }
 .phase-content {
     overflow: hidden;
-    transition: all 0.4s ease-in-out;
+    transition: max-height 0.4s ease-in-out, opacity 0.4s ease-in-out;
+    max-height: 4000px; /* Large value to allow content to expand */
+    opacity: 1;
 }
 .phase-content.collapsed {
-    max-height: 0 !important;
+    max-height: 0;
     opacity: 0;
-    margin-bottom: 0;
 }
 
 
@@ -957,7 +958,7 @@ textarea#quick-add-input:focus {
     background: none;
     border: none;
     cursor: pointer;
-    color: #a0aec0;
+    color: #bcaaa4;
     padding: 0.2rem;
     border-radius: 50%;
     display: flex;
@@ -1193,7 +1194,7 @@ input.inline-edit:focus {
 .new-comment-form textarea:focus {
     outline: none;
     border-color: var(--accent-color-light);
-    box-shadow: 0 0 0 2px rgba(192, 160, 98, 0.3);
+    box-shadow: 0 0 0 2px rgba(249, 168, 37, 0.3);
 }
 .new-comment-form .primary-btn {
     padding: 0.5rem 1rem;
@@ -1209,7 +1210,7 @@ input.inline-edit:focus {
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(251, 250, 248, 0.8);
+  background-color: rgba(255, 250, 240, 0.8);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1254,7 +1255,7 @@ input.inline-edit:focus {
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(45, 55, 72, 0.6);
+  background-color: rgba(78, 52, 46, 0.6);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1344,7 +1345,7 @@ input.inline-edit:focus {
 .modal-form select:focus {
   outline: none;
   border-color: var(--accent-color-light);
-  box-shadow: 0 0 0 3px rgba(192, 160, 98, 0.3);
+  box-shadow: 0 0 0 3px rgba(249, 168, 37, 0.3);
 }
 .modal-form textarea {
   resize: vertical;
@@ -1753,12 +1754,12 @@ input.inline-edit:focus {
     transition: all 0.3s ease;
     font-size: 0.8rem;
     font-weight: 700;
-    color: white;
+    color: var(--text-primary);
     padding-top: 4px;
     cursor: pointer;
 }
 .workload-bar.medium { background-color: var(--workload-medium); }
-.workload-bar.high { background-color: var(--workload-high); }
+.workload-bar.high { background-color: var(--workload-high); color: white;}
 .workload-tooltip {
     position: absolute;
     background: var(--text-primary);
