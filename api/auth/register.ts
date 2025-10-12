@@ -64,10 +64,13 @@ export default async function handler(
       INSERT INTO users (username, password_hash, display_name, color)
       VALUES (${username}, ${passwordHash}, ${displayName}, ${color});
     `;
+    
+    // Respond with success, but don't automatically log in. Let the client handle the login flow.
+    return res.status(201).json({ message: 'User registered successfully. Please log in.' });
 
-    return res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
     console.error('Registration error:', error);
+    // Be careful not to leak detailed database errors to the client
     return res.status(500).json({ message: 'Internal Server Error' });
   }
 }

@@ -421,8 +421,10 @@ class TimelineApp {
   private async handleLogin(event: Event): Promise<void> {
     event.preventDefault();
     this.loginErrorEl.textContent = '';
-    const username = (this.loginForm.querySelector('input[name="username"]') as HTMLInputElement).value;
-    const password = (this.loginForm.querySelector('input[name="password"]') as HTMLInputElement).value;
+    const usernameInput = (this.loginForm.querySelector('input[name="username"]') as HTMLInputElement);
+    const passwordInput = (this.loginForm.querySelector('input[name="password"]') as HTMLInputElement);
+    const username = usernameInput.value;
+    const password = passwordInput.value;
     
     this.setState({ isLoading: true, loadingText: "登录中..." });
     try {
@@ -432,9 +434,10 @@ class TimelineApp {
             body: JSON.stringify({ username, password }),
         });
 
+        const data = await response.json();
         if (response.ok) {
-            const { token } = await response.json();
-            // Decode token to get user info
+            const { token } = data;
+            // Decode token to get user info without a library for simplicity
             const payload = JSON.parse(atob(token.split('.')[1]));
             const currentUser: CurrentUser = {
                 id: payload.userId.toString(), // Ensure ID is a string
@@ -443,16 +446,16 @@ class TimelineApp {
                 token: token,
             };
             this.setState({ currentUser: currentUser });
-            this.handleUrlInvitation();
+            this.handleUrlInvitation(); // Check for invites after login
             if (!this.state.apiKey) {
                 this.showApiKeyModal(true);
             }
         } else {
-            const error = await response.json();
-            this.loginErrorEl.textContent = error.message || "用户名或密码无效。";
+            this.loginErrorEl.textContent = data.message || "用户名或密码无效。";
         }
     } catch (error) {
         this.loginErrorEl.textContent = "登录时发生网络错误。";
+        console.error("Login fetch error:", error);
     } finally {
         this.setState({ isLoading: false });
     }
@@ -461,8 +464,10 @@ class TimelineApp {
   private async handleRegister(event: Event): Promise<void> {
     event.preventDefault();
     this.registerErrorEl.textContent = '';
-    const username = (this.registerForm.querySelector('input[name="username"]') as HTMLInputElement).value;
-    const password = (this.registerForm.querySelector('input[name="password"]') as HTMLInputElement).value;
+    const usernameInput = (this.registerForm.querySelector('input[name="username"]') as HTMLInputElement);
+    const passwordInput = (this.registerForm.querySelector('input[name="password"]') as HTMLInputElement);
+    const username = usernameInput.value;
+    const password = passwordInput.value;
 
     if (username.length < 3 || password.length < 4) {
         this.registerErrorEl.textContent = "用户名至少3个字符，密码至少4个字符。";
@@ -477,15 +482,18 @@ class TimelineApp {
             body: JSON.stringify({ username, password }),
         });
 
+        const data = await response.json();
         if (response.ok) {
              // Automatically log in after successful registration
-            await this.handleLogin(event);
+             this.loginForm.querySelector<HTMLInputElement>('input[name="username"]')!.value = username;
+             this.loginForm.querySelector<HTMLInputElement>('input[name="password"]')!.value = password;
+             await this.handleLogin(event);
         } else {
-            const error = await response.json();
-            this.registerErrorEl.textContent = error.message || "注册失败。";
+            this.registerErrorEl.textContent = data.message || "注册失败。";
         }
     } catch (error) {
         this.registerErrorEl.textContent = "注册时发生网络错误。";
+        console.error("Register fetch error:", error);
     } finally {
         this.setState({ isLoading: false });
     }
@@ -534,6 +542,7 @@ class TimelineApp {
             let currentUser: CurrentUser | null = null;
             
             if (token) {
+                 // Decode token to get user info without a library for simplicity
                 const payload = JSON.parse(atob(token.split('.')[1]));
                 // Check if token is expired
                 if (payload.exp * 1000 > Date.now()) {
@@ -1627,9 +1636,13 @@ ${JSON.stringify(this.state.timeline)}
         if (this.state.authView === 'login') {
             this.loginForm.classList.remove('hidden');
             this.registerForm.classList.add('hidden');
+            this.showLoginBtn.classList.add('active');
+            this.showRegisterBtn.classList.remove('active');
         } else {
             this.loginForm.classList.add('hidden');
             this.registerForm.classList.remove('hidden');
+            this.showLoginBtn.classList.remove('active');
+            this.showRegisterBtn.classList.add('active');
         }
     }
     
@@ -1650,7 +1663,7 @@ ${JSON.stringify(this.state.timeline)}
                 this.showApiKeyModal(true);
             });
             this.userDisplayEl.querySelector('#logout-btn')!.addEventListener('click', () => {
-                this.setState({ currentUser: null, timeline: null });
+                this.setState({ currentUser: null, timeline: null, projectsHistory: [], allUsers: [] });
             });
         } else {
             this.userDisplayEl.innerHTML = '';

@@ -6,7 +6,8 @@ import jwt from 'jsonwebtoken';
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is not set');
+  // This will cause the function to fail on startup if the env var is missing, which is good for security.
+  throw new Error('FATAL_ERROR: JWT_SECRET environment variable is not set.');
 }
 
 export default async function handler(
@@ -23,20 +24,22 @@ export default async function handler(
       return res.status(400).json({ message: 'Username and password are required' });
     }
 
-    const { rows } = await sql`SELECT * FROM users WHERE username = ${username};`;
+    // Query the user from the database
+    const { rows } = await sql`SELECT id, username, password_hash, display_name, avatar_url, color FROM users WHERE username = ${username};`;
     const user = rows[0];
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
+    // Compare the provided password with the stored hash
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
     if (!isPasswordValid) {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
-    // User is authenticated, generate a token
+    // User is authenticated, generate a JWT
     const token = jwt.sign(
       {
         userId: user.id,
