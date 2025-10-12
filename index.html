@@ -26,8 +26,43 @@
         <h1>吹角</h1>
         <p>运筹帷幄，跃然纸上</p>
       </header>
+      
+      <section id="auth-section" class="hidden">
+        <div class="input-card">
+          <div class="auth-tabs">
+            <button id="show-login-btn" class="auth-tab-btn active" data-view="login">登录</button>
+            <button id="show-register-btn" class="auth-tab-btn" data-view="register">注册</button>
+          </div>
+      
+          <form id="login-form">
+            <div class="form-group">
+              <label for="login-username">用户名</label>
+              <input type="text" id="login-username" required autocomplete="username">
+            </div>
+            <div class="form-group">
+              <label for="login-password">密码</label>
+              <input type="password" id="login-password" required autocomplete="current-password">
+            </div>
+            <p id="login-error" class="error-message hidden"></p>
+            <button type="submit" class="primary-btn">登录</button>
+          </form>
+      
+          <form id="register-form" class="hidden">
+            <div class="form-group">
+              <label for="register-username">用户名</label>
+              <input type="text" id="register-username" required autocomplete="username">
+            </div>
+            <div class="form-group">
+              <label for="register-password">密码</label>
+              <input type="password" id="register-password" required autocomplete="new-password">
+            </div>
+            <p id="register-error" class="error-message hidden"></p>
+            <button type="submit" class="primary-btn">注册并登录</button>
+          </form>
+        </div>
+      </section>
 
-      <section id="input-section">
+      <section id="input-section" class="hidden">
         <div class="input-card">
             <h3>开启项目</h3>
             <textarea
@@ -79,10 +114,12 @@
       <section id="timeline-section" class="hidden">
          <div id="timeline-header">
             <h2 id="project-name" class="editable" data-field="projectName"></h2>
+            <div id="user-display"></div>
             <div id="view-switcher" class="view-switcher"></div>
             <div id="view-specific-controls"></div>
             <div id="filter-sort-controls"></div>
             <div class="button-group timeline-actions">
+                <button id="share-btn" class="secondary-btn"><span>分享</span></button>
                 <button id="chat-toggle-btn" class="secondary-btn"><span>智能助理</span></button>
                 <div class="dropdown-container">
                     <button id="report-btn-toggle" class="secondary-btn">

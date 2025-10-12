@@ -2,6 +2,20 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
+// --- Data Interfaces for Users and Collaboration ---
+interface User {
+  id: string;
+  username: string;
+  password?: string; // Stored in plain text for this simulation
+}
+
+type ProjectMemberRole = 'Admin' | 'Editor';
+
+interface ProjectMember {
+  userId: string;
+  role: ProjectMemberRole;
+}
+
 // --- Data Interfaces for the timeline (in Chinese) ---
 interface 评论 {
   发言人: string;
@@ -43,6 +57,8 @@ interface 阶段 {
 interface 时间轴数据 {
   项目名称: string;
   阶段: 阶段[];
+  ownerId: string;
+  members: ProjectMember[];
 }
 
 type ViewType = 'vertical' | 'gantt' | 'kanban' | 'calendar' | 'workload' | 'dependencies' | 'mindmap';
@@ -56,16 +72,19 @@ interface ChatMessage {
 }
 
 interface AppState {
-  timeline: 时间轴数据 | null; // The currently active project
-  projectsHistory: 时间轴数据[]; // All saved projects
+  currentUser: User | null;
+  allUsers: User[];
+  projectsHistory: 时间轴数据[];
+  timeline: 时间轴数据 | null;
   isLoading: boolean;
   loadingText: string;
   currentView: ViewType;
+  authView: 'login' | 'register';
   calendarDate: Date;
   isChatOpen: boolean;
   isChatLoading: boolean;
   chatHistory: ChatMessage[];
-  lastUserChatPrompt: string; // For regenerating chat responses
+  lastUserChatPrompt: string;
   filters: {
     status: TaskStatus[];
     priority: TaskPriority[];
@@ -82,7 +101,7 @@ interface AppState {
 interface Indices {
   phaseIndex: number;
   projectIndex?: number;
-  taskPath: number[]; // Path to the task, e.g., [0, 1] for the second sub-task of the first task
+  taskPath: number[];
 }
 
 interface TopLevelIndices {
@@ -93,11 +112,14 @@ interface TopLevelIndices {
 
 class TimelineApp {
   private state: AppState = {
-    timeline: null,
+    currentUser: null,
+    allUsers: [],
     projectsHistory: [],
+    timeline: null,
     isLoading: false,
     loadingText: "排兵布阵，军令生成中...",
     currentView: 'vertical',
+    authView: 'login',
     calendarDate: new Date(),
     isChatOpen: false,
     isChatLoading: false,
@@ -120,12 +142,22 @@ class TimelineApp {
 
   // DOM Elements
   private appContainer: HTMLElement;
+  private authSection: HTMLElement;
+  private loginForm: HTMLFormElement;
+  private registerForm: HTMLFormElement;
+  private showLoginBtn: HTMLButtonElement;
+  private showRegisterBtn: HTMLButtonElement;
+  private loginErrorEl: HTMLElement;
+  private registerErrorEl: HTMLElement;
+
   private inputSection: HTMLElement;
   private timelineSection: HTMLElement;
   private projectInput: HTMLTextAreaElement;
   private generateBtn: HTMLButtonElement;
   private timelineContainer: HTMLElement;
   private projectNameEl: HTMLElement;
+  private userDisplayEl: HTMLElement;
+  private shareBtn: HTMLButtonElement;
   private clearBtn: HTMLButtonElement;
   private loadingOverlay: HTMLElement;
   private loadingTextEl: HTMLElement;
@@ -163,12 +195,23 @@ class TimelineApp {
 
   private cacheDOMElements(): void {
     this.appContainer = document.getElementById("app-container")!;
+    // Auth
+    this.authSection = document.getElementById('auth-section')!;
+    this.loginForm = document.getElementById('login-form') as HTMLFormElement;
+    this.registerForm = document.getElementById('register-form') as HTMLFormElement;
+    this.showLoginBtn = document.getElementById('show-login-btn') as HTMLButtonElement;
+    this.showRegisterBtn = document.getElementById('show-register-btn') as HTMLButtonElement;
+    this.loginErrorEl = document.getElementById('login-error')!;
+    this.registerErrorEl = document.getElementById('register-error')!;
+
     this.inputSection = document.getElementById("input-section")!;
     this.timelineSection = document.getElementById("timeline-section")!;
     this.projectInput = document.getElementById("project-input") as HTMLTextAreaElement;
     this.generateBtn = document.getElementById("generate-btn") as HTMLButtonElement;
     this.timelineContainer = document.getElementById("timeline-container")!;
     this.projectNameEl = document.getElementById("project-name")!;
+    this.userDisplayEl = document.getElementById('user-display')!;
+    this.shareBtn = document.getElementById('share-btn') as HTMLButtonElement;
     this.clearBtn = document.getElementById("clear-btn") as HTMLButtonElement;
     this.loadingOverlay = document.getElementById("loading-overlay")!;
     this.loadingTextEl = document.getElementById("loading-text")!;
@@ -197,12 +240,19 @@ class TimelineApp {
   }
 
   private addEventListeners(): void {
+    // Auth
+    this.showLoginBtn.addEventListener('click', () => this.handleAuthSwitch('login'));
+    this.showRegisterBtn.addEventListener('click', () => this.handleAuthSwitch('register'));
+    this.loginForm.addEventListener('submit', this.handleLogin.bind(this));
+    this.registerForm.addEventListener('submit', this.handleRegister.bind(this));
+
     this.generateBtn.addEventListener("click", this.handleGenerateClick.bind(this));
     this.clearBtn.addEventListener("click", this.handleClearClick.bind(this));
     this.exportBtn.addEventListener("click", this.handleExportClick.bind(this));
     this.importBtn.addEventListener("click", () => this.importFileEl.click());
     this.importFileEl.addEventListener("change", this.handleImport.bind(this));
     this.quickAddFormEl.addEventListener('submit', this.handleQuickAddTask.bind(this));
+    this.shareBtn.addEventListener('click', () => this.showMembersModal());
     
     // Report Dropdown Listeners
     this.reportBtnToggle.addEventListener('click', (e) => {
@@ -243,31 +293,91 @@ class TimelineApp {
 
   }
 
+  // FIX: Add missing authentication handler methods.
+  private handleAuthSwitch(view: 'login' | 'register'): void {
+    this.setState({ authView: view });
+  }
+
+  private handleLogin(event: Event): void {
+    event.preventDefault();
+    const username = (this.loginForm.querySelector('input[name="username"]') as HTMLInputElement).value;
+    const password = (this.loginForm.querySelector('input[name="password"]') as HTMLInputElement).value;
+    const user = this.state.allUsers.find(u => u.username === username && u.password === password);
+
+    if (user) {
+        this.loginErrorEl.textContent = '';
+        this.setState({ currentUser: user });
+    } else {
+        this.loginErrorEl.textContent = "用户名或密码无效。";
+    }
+  }
+
+  private handleRegister(event: Event): void {
+    event.preventDefault();
+    const username = (this.registerForm.querySelector('input[name="username"]') as HTMLInputElement).value;
+    const password = (this.registerForm.querySelector('input[name="password"]') as HTMLInputElement).value;
+
+    if (username.length < 3 || password.length < 4) {
+        this.registerErrorEl.textContent = "用户名至少3个字符，密码至少4个字符。";
+        return;
+    }
+    if (this.state.allUsers.some(u => u.username === username)) {
+        this.registerErrorEl.textContent = "此用户名已被占用。";
+        return;
+    }
+
+    const newUser: User = {
+        id: `user-${Date.now()}`,
+        username,
+        password
+    };
+
+    const newUsers = [...this.state.allUsers, newUser];
+    this.registerErrorEl.textContent = '';
+    this.setState({
+        allUsers: newUsers,
+        currentUser: newUser,
+    });
+  }
+
   private setState(newState: Partial<AppState>, shouldRender: boolean = true): void {
     this.state = { ...this.state, ...newState };
     if (shouldRender) {
       this.render();
     }
-    // Always save history when it changes, even if not re-rendering immediately
-    if (newState.projectsHistory !== undefined) {
+    // Always save state when data changes
+    if (newState.projectsHistory !== undefined || newState.allUsers !== undefined || newState.currentUser !== undefined) {
         this.saveState();
     }
   }
 
   private saveState(): void {
-    localStorage.setItem("timelineProjects", JSON.stringify(this.state.projectsHistory));
+    const appData = {
+        users: this.state.allUsers,
+        projects: this.state.projectsHistory,
+        currentUserId: this.state.currentUser?.id,
+    };
+    localStorage.setItem("timelineAppData", JSON.stringify(appData));
   }
 
   private loadState(): void {
-    const savedProjectsJSON = localStorage.getItem("timelineProjects");
-    if (savedProjectsJSON) {
+    const savedDataJSON = localStorage.getItem("timelineAppData");
+    if (savedDataJSON) {
         try {
-            const savedProjects = JSON.parse(savedProjectsJSON);
-            if (Array.isArray(savedProjects)) {
-                this.state.projectsHistory = savedProjects;
-            }
+            const savedData = JSON.parse(savedDataJSON);
+            const allUsers = Array.isArray(savedData.users) ? savedData.users : [];
+            const projectsHistory = Array.isArray(savedData.projects) ? savedData.projects : [];
+            const currentUser = allUsers.find((u: User) => u.id === savedData.currentUserId) || null;
+            
+            this.state = {
+                ...this.state,
+                allUsers,
+                projectsHistory,
+                currentUser,
+            };
         } catch {
-            this.state.projectsHistory = [];
+            // Corrupted data, start fresh
+            this.state = { ...this.state, allUsers: [], projectsHistory: [], currentUser: null };
         }
     }
   }
@@ -291,6 +401,7 @@ class TimelineApp {
   }
 
   private handleImport(event: Event): void {
+    if (!this.state.currentUser) return;
     const file = (event.target as HTMLInputElement).files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -299,6 +410,9 @@ class TimelineApp {
             const result = e.target?.result as string;
             const data = JSON.parse(result);
             if (data.项目名称 && Array.isArray(data.阶段)) {
+                // Assign ownership to current user upon import
+                data.ownerId = this.state.currentUser!.id;
+                data.members = [{ userId: this.state.currentUser!.id, role: 'Admin' }];
                 const newProject = this.postProcessTimelineData(data);
                 const newHistory = [...this.state.projectsHistory, newProject];
                 this.setState({ timeline: newProject, projectsHistory: newHistory });
@@ -361,6 +475,10 @@ class TimelineApp {
   }
 
   private async handleGenerateClick(): Promise<void> {
+    if (!this.state.currentUser) {
+        alert("请先登录。");
+        return;
+    }
     const projectDescription = this.projectInput.value.trim();
     if (!projectDescription) {
       alert("请先阐明您的战略目标。");
@@ -388,10 +506,17 @@ ${projectDescription}
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: responseSchema },
       });
+      
+      const parsedData = JSON.parse(response.text);
+      const timelineData: 时间轴数据 = {
+        ...parsedData,
+        ownerId: this.state.currentUser.id,
+        members: [{ userId: this.state.currentUser.id, role: 'Admin' }],
+      };
 
-      const timelineData = this.postProcessTimelineData(JSON.parse(response.text));
-      const newHistory = [...this.state.projectsHistory, timelineData];
-      this.setState({ timeline: timelineData, projectsHistory: newHistory, currentView: 'vertical', chatHistory: [], isChatOpen: false });
+      const processedData = this.postProcessTimelineData(timelineData);
+      const newHistory = [...this.state.projectsHistory, processedData];
+      this.setState({ timeline: processedData, projectsHistory: newHistory, currentView: 'vertical', chatHistory: [], isChatOpen: false });
     } catch (error) {
       console.error("生成计划时出错：", error);
       alert("计划生成失败，请稍后重试。");
@@ -406,12 +531,10 @@ ${projectDescription}
 
       const processTasksRecursively = (tasks: 任务[]) => {
           tasks.forEach(task => {
-              // Ensure ID exists and is unique
               if (!task.id || assignedIds.has(task.id)) {
                   task.id = `task-${Date.now()}-${taskCounter++}`;
               }
               assignedIds.add(task.id);
-
               task.已完成 = task.状态 === '已完成';
               if (task.子任务) {
                   processTasksRecursively(task.子任务);
@@ -481,7 +604,6 @@ ${projectDescription}
                 result.task.状态 = '进行中';
             }
             
-            // This is a mutable update, so we need to trigger a re-render and save
             this.updateActiveProjectInHistory(this.state.timeline);
         }
     }
@@ -529,7 +651,7 @@ ${projectDescription}
     }
     
     private handleAddComment(indices: Indices, content: string): void {
-        if (!content.trim()) return;
+        if (!content.trim() || !this.state.currentUser) return;
         const result = this.getTaskFromPath(indices);
         if (result && this.state.timeline) {
             const task = result.task;
@@ -537,7 +659,7 @@ ${projectDescription}
                 task.讨论 = [];
             }
             const newComment: 评论 = {
-                发言人: '我', // Defaulting to 'Me' for local-first app
+                发言人: this.state.currentUser.username,
                 内容: content,
                 时间戳: new Date().toISOString(),
             };
@@ -570,48 +692,51 @@ ${projectDescription}
             return;
         }
         
-        // Perform the move. This mutates the state object directly.
-        // 1. Remove from original position.
         const [movedTask] = dragParent.splice(dragIndex, 1);
 
-        // 2. Adjust drop index if the removal affected it.
-        // This happens if they are in the same list and the dragged item was before the drop target.
         if (dragParent === dropParent && dragIndex < dropIndex) {
             dropIndex--;
         }
 
-        // 3. Insert into new position.
         const insertIndex = position === 'before' ? dropIndex : dropIndex + 1;
         dropParent.splice(insertIndex, 0, movedTask);
 
-        // 4. Trigger state update and save.
         this.updateActiveProjectInHistory(this.state.timeline);
     }
 
     private updateActiveProjectInHistory(updatedTimeline: 时间轴数据) {
         const activeProjectName = updatedTimeline.项目名称;
-        const projectIndex = this.state.projectsHistory.findIndex(p => p.项目名称 === activeProjectName);
+        const projectIndex = this.state.projectsHistory.findIndex(p => p.项目名称 === activeProjectName && p.ownerId === updatedTimeline.ownerId);
         
+        const newHistory = [...this.state.projectsHistory];
         if (projectIndex !== -1) {
-            const newHistory = [...this.state.projectsHistory];
             newHistory[projectIndex] = updatedTimeline;
-            this.setState({ timeline: updatedTimeline, projectsHistory: newHistory });
         } else {
-             // Fallback for safety, though this case should be rare.
-            this.setState({ timeline: updatedTimeline });
+             newHistory.push(updatedTimeline);
         }
+        this.setState({ timeline: updatedTimeline, projectsHistory: newHistory });
     }
 
   // --- Home Screen Methods ---
     private handleLoadProject(index: number): void {
-        const projectToLoad = this.state.projectsHistory[index];
-        this.setState({ timeline: projectToLoad, currentView: 'vertical', chatHistory: [], isChatOpen: false });
+        const projectToLoad = this.getUserProjects()[index];
+        if(projectToLoad) {
+            this.setState({ timeline: projectToLoad, currentView: 'vertical', chatHistory: [], isChatOpen: false });
+        }
     }
 
     private handleDeleteProject(index: number): void {
+        if (!this.state.currentUser) return;
+        const projectToDelete = this.getUserProjects()[index];
+        if (!projectToDelete || projectToDelete.ownerId !== this.state.currentUser.id) {
+            alert("只有项目所有者才能删除项目。");
+            return;
+        }
+
         if (!confirm("确定要永久废止此征程吗？此操作不可撤销。")) return;
-        const newHistory = this.state.projectsHistory.filter((_, i) => i !== index);
-        this.setState({ projectsHistory: newHistory });
+        
+        const newHistory = this.state.projectsHistory.filter(p => p !== projectToDelete);
+        this.setState({ projectsHistory: newHistory, timeline: null });
     }
 
     private async handleQuickAddTask(event: Event): Promise<void> {
@@ -622,17 +747,19 @@ ${projectDescription}
         const assigneeInput = form.querySelector('#quick-add-assignee') as HTMLInputElement;
         const deadlineInput = form.querySelector('#quick-add-deadline') as HTMLInputElement;
 
-        const projectIndex = parseInt(projectSelect.value, 10);
+        const projectIndexInUsersList = parseInt(projectSelect.value, 10);
         const taskDescription = taskInput.value.trim();
         const assignee = assigneeInput.value.trim();
         const deadline = deadlineInput.value.trim().replace('T', ' ');
 
-        if (isNaN(projectIndex) || !taskDescription) {
+        if (isNaN(projectIndexInUsersList) || !taskDescription) {
             alert("请选择一个项目并填写任务描述。");
             return;
         }
+        
+        const projectToUpdate = this.getUserProjects()[projectIndexInUsersList];
+        const globalProjectIndex = this.state.projectsHistory.indexOf(projectToUpdate);
 
-        const projectToUpdate = this.state.projectsHistory[projectIndex];
         this.setState({ isLoading: true, loadingText: "智能分析中，请稍候..." });
 
         try {
@@ -666,9 +793,11 @@ ${JSON.stringify(projectToUpdate)}
                 config: { responseMimeType: "application/json", responseSchema },
             });
 
-            const updatedTimeline = this.postProcessTimelineData(JSON.parse(response.text));
+            const parsedData = JSON.parse(response.text);
+            const updatedTimeline = this.postProcessTimelineData({ ...projectToUpdate, ...parsedData });
+
             const newHistory = [...this.state.projectsHistory];
-            newHistory[projectIndex] = updatedTimeline;
+            newHistory[globalProjectIndex] = updatedTimeline;
 
             this.setState({
                 timeline: this.state.timeline?.项目名称 === updatedTimeline.项目名称 ? updatedTimeline : this.state.timeline,
@@ -700,7 +829,6 @@ ${JSON.stringify(projectToUpdate)}
                 phase.阶段名称 = value;
             }
         }
-        // Since this is a direct mutation, we trigger a save and re-render
         this.updateActiveProjectInHistory(this.state.timeline);
     }
   
@@ -710,8 +838,12 @@ ${JSON.stringify(projectToUpdate)}
     ): HTMLElement {
         const el = document.createElement(tag);
         el.textContent = text;
-        el.className = 'editable';
 
+        if (!this.canEditProject()) {
+            return el;
+        }
+
+        el.className = 'editable';
         if (tag === 'h2' && field === '项目名称' && indices.phaseIndex === undefined) {
             el.id = 'project-name';
         }
@@ -726,7 +858,6 @@ ${JSON.stringify(projectToUpdate)}
             
             const save = () => {
                 this.handleUpdateField(indices, field, input.value);
-                // The re-render will be handled by handleUpdateField's call to setState
             };
             input.addEventListener('blur', save);
             input.addEventListener('keydown', (e) => {
@@ -734,7 +865,7 @@ ${JSON.stringify(projectToUpdate)}
                 if (e.key === 'Escape') {
                     input.removeEventListener('blur', save);
                     input.blur();
-                    this.render(); // Re-render to restore original element
+                    this.render();
                 }
             });
         });
@@ -751,9 +882,8 @@ ${JSON.stringify(projectToUpdate)}
         
         const formatToDateTimeLocalValue = (d?: string): string => {
             if (!d) return '';
-            // Handles 'YYYY-MM-DD' and 'YYYY-MM-DD HH:mm'
             const value = d.includes(' ') ? d.replace(' ', 'T') : `${d}T00:00`;
-            return value.slice(0, 16); // Ensure it's in YYYY-MM-DDTHH:mm format
+            return value.slice(0, 16);
         };
         
         const flatTasks = Array.from(this.flattenTasks()).map(i => i.task);
@@ -761,6 +891,11 @@ ${JSON.stringify(projectToUpdate)}
             .filter(t => t.id !== task.id)
             .map(t => `<option value="${t.id}" ${task.dependencies?.includes(t.id) ? 'selected' : ''}>${t.任务名称}</option>`)
             .join('');
+
+        const projectMembers = this.state.timeline?.members.map(m => this.state.allUsers.find(u => u.id === m.userId)).filter(Boolean) as User[];
+        const assigneeOptions = projectMembers.map(user => 
+            `<option value="${user.username}" ${task.负责人 === user.username ? 'selected' : ''}>${user.username}</option>`
+        ).join('');
 
         modalOverlay.innerHTML = `
             <div class="modal-content">
@@ -795,7 +930,7 @@ ${JSON.stringify(projectToUpdate)}
                     </div>
                     <div class="form-group">
                         <label for="assignee">负责人</label>
-                        <input type="text" id="assignee" value="${task.负责人 || ''}">
+                        <select id="assignee"><option value="">未分配</option>${assigneeOptions}</select>
                     </div>
                     <div class="form-group">
                         <label for="startTime">开始时间</label>
@@ -823,6 +958,11 @@ ${JSON.stringify(projectToUpdate)}
         document.body.appendChild(modalOverlay);
 
         const form = modalOverlay.querySelector('form')!;
+        if (!this.canEditProject()) {
+            form.querySelectorAll('input, textarea, select, button').forEach(el => (el as any).disabled = true);
+            form.querySelector<HTMLButtonElement>('.cancel-btn')!.disabled = false;
+        }
+
         const close = () => modalOverlay.remove();
         
         const formatFromDateTimeLocalValue = (val: string): string => val ? val.replace('T', ' ') : '';
@@ -841,7 +981,7 @@ ${JSON.stringify(projectToUpdate)}
                 详情: (form.querySelector('#details') as HTMLTextAreaElement).value,
                 状态: (form.querySelector('#status') as HTMLSelectElement).value as '待办' | '进行中' | '已完成',
                 优先级: (form.querySelector('#priority') as HTMLSelectElement).value as '高' | '中' | '低',
-                负责人: (form.querySelector('#assignee') as HTMLInputElement).value,
+                负责人: (form.querySelector('#assignee') as HTMLSelectElement).value,
                 开始时间: formatFromDateTimeLocalValue((form.querySelector('#startTime') as HTMLInputElement).value),
                 截止日期: formatFromDateTimeLocalValue((form.querySelector('#deadline') as HTMLInputElement).value),
                 备注: (form.querySelector('#notes') as HTMLTextAreaElement).value,
@@ -858,6 +998,111 @@ ${JSON.stringify(projectToUpdate)}
         setTimeout(() => modalOverlay.classList.add('visible'), 10);
     }
   
+    // FIX: Add missing method to show the members management modal.
+    private showMembersModal(): void {
+        if (!this.state.timeline) return;
+
+        const modalOverlay = document.createElement('div');
+        modalOverlay.id = 'members-modal-overlay';
+        modalOverlay.className = 'modal-overlay';
+
+        const renderMembersList = () => {
+            const owner = this.state.allUsers.find(u => u.id === this.state.timeline!.ownerId);
+            return this.state.timeline!.members.map(member => {
+                const user = this.state.allUsers.find(u => u.id === member.userId);
+                if (!user) return '';
+                const isOwner = user.id === owner?.id;
+                return `
+                    <div class="member-item">
+                        <span>${user.username} ${isOwner ? '<strong>(所有者)</strong>' : `(${member.role})`}</span>
+                        ${!isOwner && this.canEditProject() ? `
+                            <button class="icon-btn remove-member-btn" data-user-id="${user.id}" title="移除成员">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        };
+
+        const nonMemberOptions = () => {
+            return this.state.allUsers
+                .filter(u => !this.state.timeline!.members.some(m => m.userId === u.id))
+                .map(u => `<option value="${u.id}">${u.username}</option>`)
+                .join('');
+        };
+
+        modalOverlay.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>项目成员管理</h2>
+                    <button class="modal-close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="members-list">
+                        ${renderMembersList()}
+                    </div>
+                    ${this.canEditProject() ? `
+                    <form class="add-member-form">
+                        <p>添加新成员:</p>
+                        <div class="form-group-inline">
+                            <select id="add-user-select" required>${nonMemberOptions()}</select>
+                            <select id="add-user-role">
+                                <option value="Editor">Editor</option>
+                                <option value="Admin">Admin</option>
+                            </select>
+                            <button type="submit" class="primary-btn">添加</button>
+                        </div>
+                    </form>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modalOverlay);
+        
+        const close = () => modalOverlay.remove();
+        modalOverlay.addEventListener('click', (e) => {
+            if (e.target === modalOverlay) close();
+        });
+        modalOverlay.querySelector('.modal-close-btn')!.addEventListener('click', close);
+        
+        modalOverlay.querySelectorAll('.remove-member-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const userId = (e.currentTarget as HTMLElement).dataset.userId;
+                if (userId && this.state.timeline) {
+                    const updatedTimeline = {
+                        ...this.state.timeline,
+                        members: this.state.timeline.members.filter(m => m.userId !== userId)
+                    };
+                    this.updateActiveProjectInHistory(updatedTimeline);
+                    close();
+                    this.showMembersModal(); // Re-open to show updated list
+                }
+            });
+        });
+
+        const addForm = modalOverlay.querySelector('.add-member-form');
+        if (addForm) {
+            addForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const userId = (modalOverlay.querySelector('#add-user-select') as HTMLSelectElement).value;
+                const role = (modalOverlay.querySelector('#add-user-role') as HTMLSelectElement).value as ProjectMemberRole;
+                if (userId && role && this.state.timeline) {
+                     const updatedTimeline = {
+                        ...this.state.timeline,
+                        members: [...this.state.timeline.members, { userId, role }]
+                    };
+                    this.updateActiveProjectInHistory(updatedTimeline);
+                    close();
+                    this.showMembersModal();
+                }
+            });
+        }
+
+        setTimeout(() => modalOverlay.classList.add('visible'), 10);
+    }
+
     // --- Report Methods ---
     private async handleGenerateReportClick(period: 'weekly' | 'monthly'): Promise<void> {
         this.showReportModal(true); // Show loading state
@@ -979,11 +1224,10 @@ Provide the report in a clean, readable format suitable for copying into an emai
     private async handleRegenerateClick(): Promise<void> {
         if (this.state.isChatLoading || !this.state.lastUserChatPrompt) return;
 
-        // Remove the last model response from history if it exists
         const lastMessage = this.state.chatHistory[this.state.chatHistory.length - 1];
         if (lastMessage && lastMessage.role === 'model') {
             const historyWithoutLastResponse = this.state.chatHistory.slice(0, -1);
-            this.setState({ chatHistory: historyWithoutLastResponse }, false); // No full re-render yet
+            this.setState({ chatHistory: historyWithoutLastResponse }, false);
         }
         
         await this.submitChat(this.state.lastUserChatPrompt);
@@ -1000,12 +1244,10 @@ Provide the report in a clean, readable format suitable for copying into an emai
         });
 
         try {
-            // Check if the input is likely a question that needs web search
             const isQuestion = /^(谁|什么|哪里|何时|为何|如何|是|做|能)\b/i.test(userInput) ||
                                userInput.endsWith('？') || userInput.endsWith('?');
 
             if (isQuestion) {
-                // --- General Q&A with Web Search ---
                 const response = await this.ai.models.generateContent({
                     model: "gemini-2.5-flash",
                     contents: `请根据您的知识和网络搜索结果，用中文回答以下问题。如果问题与提供的项目计划有关，请结合上下文回答。
@@ -1027,7 +1269,11 @@ ${JSON.stringify(this.state.timeline)}
                 this.setState({ chatHistory: finalHistory });
 
             } else {
-                // --- Modify Timeline Logic ---
+                if (!this.canEditProject()) {
+                    const errorHistory: ChatMessage[] = [...this.state.chatHistory, { role: 'model', text: "抱歉，您没有修改此项目的权限。" }];
+                    this.setState({ chatHistory: errorHistory });
+                    return;
+                }
                 const timelineSchema = this.createTimelineSchema();
                 const responseSchema = {
                     type: Type.OBJECT,
@@ -1064,7 +1310,7 @@ ${JSON.stringify(this.state.timeline)}
                 });
 
                 const result = JSON.parse(response.text);
-                const updatedTimeline = this.postProcessTimelineData(result.updatedTimeline);
+                const updatedTimeline = this.postProcessTimelineData({ ...this.state.timeline, ...result.updatedTimeline });
 
                 const finalHistory: ChatMessage[] = [...this.state.chatHistory, { role: 'model', text: result.responseText }];
                 
@@ -1082,16 +1328,53 @@ ${JSON.stringify(this.state.timeline)}
     }
 
 
+    // FIX: Add missing render methods for auth and user display.
+    private renderAuth(): void {
+        this.authSection.classList.remove('hidden');
+        this.inputSection.classList.add('hidden');
+        this.timelineSection.classList.add('hidden');
+        
+        if (this.state.authView === 'login') {
+            this.loginForm.classList.remove('hidden');
+            this.registerForm.classList.add('hidden');
+        } else {
+            this.loginForm.classList.add('hidden');
+            this.registerForm.classList.remove('hidden');
+        }
+    }
+    
+    private renderUserDisplay(): void {
+        if (this.state.currentUser) {
+            this.userDisplayEl.innerHTML = `
+                <span>欢迎, <strong>${this.state.currentUser.username}</strong></span>
+                <button id="logout-btn" class="secondary-btn">登出</button>
+            `;
+            this.userDisplayEl.querySelector('#logout-btn')!.addEventListener('click', () => {
+                this.setState({ currentUser: null, timeline: null });
+            });
+        } else {
+            this.userDisplayEl.innerHTML = '';
+        }
+    }
   // --- Rendering ---
   private render(): void {
     this.loadingOverlay.classList.toggle("hidden", !this.state.isLoading);
     this.loadingTextEl.textContent = this.state.loadingText;
+    
+    if (!this.state.currentUser) {
+        this.renderAuth();
+        return;
+    }
+
+    // --- Logged-in view ---
+    this.authSection.classList.add('hidden');
     this.generateBtn.disabled = this.state.isLoading;
     if (this.generateBtn.querySelector('span')) {
         this.generateBtn.querySelector('span')!.textContent = this.state.isLoading ? "生成中..." : "开始生成";
     }
-    
     this.chatSendBtn.disabled = this.state.isChatLoading;
+    
+    this.renderUserDisplay();
 
     if (this.state.timeline) {
       this.inputSection.classList.add("hidden");
@@ -1115,27 +1398,13 @@ ${JSON.stringify(this.state.timeline)}
       }
       
       switch(this.state.currentView) {
-        case 'vertical':
-          this.renderVerticalTimeline(this.state.timeline.阶段);
-          break;
-        case 'gantt':
-          this.renderGanttChart();
-          break;
-        case 'kanban':
-          this.renderKanban();
-          break;
-        case 'calendar':
-          this.renderCalendar();
-          break;
-        case 'workload':
-          this.renderWorkloadView();
-          break;
-        case 'dependencies':
-          this.renderDependencyMap(); // This now handles its own container
-          break;
-        case 'mindmap':
-          this.renderMindMap();
-          break;
+        case 'vertical': this.renderVerticalTimeline(this.state.timeline.阶段); break;
+        case 'gantt': this.renderGanttChart(); break;
+        case 'kanban': this.renderKanban(); break;
+        case 'calendar': this.renderCalendar(); break;
+        case 'workload': this.renderWorkloadView(); break;
+        case 'dependencies': this.renderDependencyMap(); break;
+        case 'mindmap': this.renderMindMap(); break;
       }
 
     } else {
@@ -1146,9 +1415,18 @@ ${JSON.stringify(this.state.timeline)}
     }
   }
 
+    private getUserProjects(): 时间轴数据[] {
+        if (!this.state.currentUser) return [];
+        return this.state.projectsHistory.filter(p => 
+            p.ownerId === this.state.currentUser!.id || 
+            p.members.some(m => m.userId === this.state.currentUser!.id)
+        );
+    }
+
     private renderHomeScreen(): void {
         this.projectInput.value = "";
-        const hasHistory = this.state.projectsHistory.length > 0;
+        const userProjects = this.getUserProjects();
+        const hasHistory = userProjects.length > 0;
 
         this.historySectionEl.classList.toggle('hidden', !hasHistory);
         this.quickAddFormEl.classList.toggle('hidden', !hasHistory);
@@ -1158,21 +1436,24 @@ ${JSON.stringify(this.state.timeline)}
             const projectSelect = this.quickAddFormEl.querySelector('#project-select') as HTMLSelectElement;
             projectSelect.innerHTML = '';
 
-            this.state.projectsHistory.forEach((project, index) => {
+            userProjects.forEach((project, index) => {
+                const isOwner = project.ownerId === this.state.currentUser?.id;
                 // Populate history list
                 const itemEl = document.createElement('div');
                 itemEl.className = 'history-item';
                 itemEl.innerHTML = `
-                    <span class="history-item-name">${project.项目名称}</span>
+                    <span class="history-item-name">${project.项目名称} ${isOwner ? '(所有者)' : ''}</span>
                     <div class="history-item-actions">
                         <button class="secondary-btn load-btn">载入</button>
-                        <button class="icon-btn delete-btn" title="删除项目">
+                        ${isOwner ? `<button class="icon-btn delete-btn" title="删除项目">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                        </button>
+                        </button>` : ''}
                     </div>
                 `;
                 itemEl.querySelector('.load-btn')!.addEventListener('click', () => this.handleLoadProject(index));
-                itemEl.querySelector('.delete-btn')!.addEventListener('click', () => this.handleDeleteProject(index));
+                if (isOwner) {
+                    itemEl.querySelector('.delete-btn')!.addEventListener('click', () => this.handleDeleteProject(index));
+                }
                 this.historyListEl.appendChild(itemEl);
 
                 // Populate select dropdown
@@ -1209,7 +1490,6 @@ ${JSON.stringify(this.state.timeline)}
                     });
                     sourcesHTML += '</ul>';
                     sourcesEl.innerHTML = sourcesHTML;
-                    // Prepend after avatar inside message content's parent
                     msgEl.appendChild(sourcesEl);
                 }
 
@@ -1302,16 +1582,10 @@ ${JSON.stringify(this.state.timeline)}
 
     const allAssignees = [...new Set(Array.from(this.flattenTasks()).map(item => item.task.负责人 || '').flatMap(a => a.split(/[,，\s]+/)).filter(Boolean).map(name => name.trim()))];
     
-    // Status Filter
     this.filterSortControlsEl.appendChild(this.createMultiSelectDropdown('status', '状态', ['待办', '进行中', '已完成'], this.state.filters.status));
-    
-    // Priority Filter
     this.filterSortControlsEl.appendChild(this.createMultiSelectDropdown('priority', '优先级', ['高', '中', '低'], this.state.filters.priority));
-
-    // Assignee Filter
     this.filterSortControlsEl.appendChild(this.createMultiSelectDropdown('assignee', '负责人', allAssignees, this.state.filters.assignee));
 
-    // Sort Control
     const sortGroup = document.createElement('div');
     sortGroup.className = 'sort-group';
     sortGroup.innerHTML = `
@@ -1399,6 +1673,7 @@ ${JSON.stringify(this.state.timeline)}
 
   // --- VERTICAL TIMELINE ---
   private renderVerticalTimeline(phases: 阶段[]): void {
+    const canEdit = this.canEditProject();
     phases.forEach((phase, phaseIndex) => {
       const phaseEl = document.createElement("div");
       phaseEl.className = "phase";
@@ -1420,13 +1695,13 @@ ${JSON.stringify(this.state.timeline)}
                 notesEl.textContent = project.备注;
                 projectEl.appendChild(notesEl);
               }
-              projectEl.appendChild(this.createTasksList(project.任务, { phaseIndex, projectIndex }, []));
+              projectEl.appendChild(this.createTasksList(project.任务, { phaseIndex, projectIndex }, [], canEdit));
               phaseEl.appendChild(projectEl);
           });
       }
 
       if (phase.任务) {
-          phaseEl.appendChild(this.createTasksList(phase.任务, { phaseIndex }, []));
+          phaseEl.appendChild(this.createTasksList(phase.任务, { phaseIndex }, [], canEdit));
       }
 
       this.timelineContainer.appendChild(phaseEl);
@@ -1463,7 +1738,7 @@ ${JSON.stringify(this.state.timeline)}
         }, 1000); // Animation duration should match CSS
     }
 
-    private createTasksList(tasks: 任务[], baseIndices: TopLevelIndices, parentPath: number[]): HTMLElement {
+    private createTasksList(tasks: 任务[], baseIndices: TopLevelIndices, parentPath: number[], canEdit: boolean): HTMLElement {
         const listContainer = document.createElement('div');
         const tasksList = document.createElement("ul");
         tasksList.className = "tasks-list";
@@ -1476,63 +1751,63 @@ ${JSON.stringify(this.state.timeline)}
 
             const taskEl = document.createElement("li");
             taskEl.className = "task-item";
-            if (task.优先级) {
-                taskEl.dataset.priority = task.优先级;
-            }
+            if (task.优先级) taskEl.dataset.priority = task.优先级;
             taskEl.classList.toggle("completed", task.已完成);
-            taskEl.draggable = true;
+            taskEl.draggable = canEdit;
 
-            taskEl.addEventListener('dragstart', (e) => {
-                e.stopPropagation();
-                taskEl.classList.add('dragging');
-                e.dataTransfer!.setData('application/json', JSON.stringify(fullIndices));
-                e.dataTransfer!.effectAllowed = 'move';
-            });
-
-            taskEl.addEventListener('dragend', (e) => {
-                e.stopPropagation();
-                taskEl.classList.remove('dragging');
-                document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => {
-                    el.classList.remove('drag-over-top', 'drag-over-bottom');
+            if (canEdit) {
+                taskEl.addEventListener('dragstart', (e) => {
+                    e.stopPropagation();
+                    taskEl.classList.add('dragging');
+                    e.dataTransfer!.setData('application/json', JSON.stringify(fullIndices));
+                    e.dataTransfer!.effectAllowed = 'move';
                 });
-            });
 
-            taskEl.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (taskEl.classList.contains('dragging')) return;
-                
-                const rect = taskEl.getBoundingClientRect();
-                const midpoint = rect.top + rect.height / 2;
-                if (e.clientY < midpoint) {
-                    taskEl.classList.add('drag-over-top');
-                    taskEl.classList.remove('drag-over-bottom');
-                } else {
-                    taskEl.classList.add('drag-over-bottom');
-                    taskEl.classList.remove('drag-over-top');
-                }
-            });
+                taskEl.addEventListener('dragend', (e) => {
+                    e.stopPropagation();
+                    taskEl.classList.remove('dragging');
+                    document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => {
+                        el.classList.remove('drag-over-top', 'drag-over-bottom');
+                    });
+                });
 
-            taskEl.addEventListener('dragleave', (e) => {
-                e.stopPropagation();
-                taskEl.classList.remove('drag-over-top', 'drag-over-bottom');
-            });
+                taskEl.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (taskEl.classList.contains('dragging')) return;
+                    
+                    const rect = taskEl.getBoundingClientRect();
+                    const midpoint = rect.top + rect.height / 2;
+                    if (e.clientY < midpoint) {
+                        taskEl.classList.add('drag-over-top');
+                        taskEl.classList.remove('drag-over-bottom');
+                    } else {
+                        taskEl.classList.add('drag-over-bottom');
+                        taskEl.classList.remove('drag-over-top');
+                    }
+                });
 
-            taskEl.addEventListener('drop', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                
-                const position = taskEl.classList.contains('drag-over-top') ? 'before' : 'after';
-                taskEl.classList.remove('drag-over-top', 'drag-over-bottom');
+                taskEl.addEventListener('dragleave', (e) => {
+                    e.stopPropagation();
+                    taskEl.classList.remove('drag-over-top', 'drag-over-bottom');
+                });
 
-                try {
-                    const draggedIndices: Indices = JSON.parse(e.dataTransfer!.getData('application/json'));
-                    const dropIndices: Indices = fullIndices;
-                    this.handleMoveTask(draggedIndices, dropIndices, position);
-                } catch (err) {
-                    console.error("Drop failed:", err);
-                }
-            });
+                taskEl.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    const position = taskEl.classList.contains('drag-over-top') ? 'before' : 'after';
+                    taskEl.classList.remove('drag-over-top', 'drag-over-bottom');
+
+                    try {
+                        const draggedIndices: Indices = JSON.parse(e.dataTransfer!.getData('application/json'));
+                        const dropIndices: Indices = fullIndices;
+                        this.handleMoveTask(draggedIndices, dropIndices, position);
+                    } catch (err) {
+                        console.error("Drop failed:", err);
+                    }
+                });
+            }
 
 
             const taskHeader = document.createElement('div');
@@ -1544,6 +1819,7 @@ ${JSON.stringify(this.state.timeline)}
             const checkbox = document.createElement("input");
             checkbox.type = "checkbox";
             checkbox.checked = task.已完成;
+            checkbox.disabled = !canEdit;
             checkbox.addEventListener('change', (e) => {
                 const isChecked = (e.target as HTMLInputElement).checked;
                 this.handleToggleComplete(fullIndices, isChecked);
@@ -1566,12 +1842,14 @@ ${JSON.stringify(this.state.timeline)}
             const statusClass = statusMap[task.状态] || 'todo';
             taskActions.innerHTML = `<span class="status-tag status-${statusClass}">${task.状态}</span>`;
 
-            const addSubtaskBtn = document.createElement('button');
-            addSubtaskBtn.className = 'icon-btn';
-            addSubtaskBtn.title = '添加子任务';
-            addSubtaskBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
-            addSubtaskBtn.onclick = () => this.handleAddTask(baseIndices, currentPath);
-            taskActions.appendChild(addSubtaskBtn);
+            if (canEdit) {
+                const addSubtaskBtn = document.createElement('button');
+                addSubtaskBtn.className = 'icon-btn';
+                addSubtaskBtn.title = '添加子任务';
+                addSubtaskBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`;
+                addSubtaskBtn.onclick = () => this.handleAddTask(baseIndices, currentPath);
+                taskActions.appendChild(addSubtaskBtn);
+            }
 
             const editBtn = document.createElement('button');
             editBtn.className = 'icon-btn';
@@ -1580,12 +1858,14 @@ ${JSON.stringify(this.state.timeline)}
             editBtn.onclick = () => this.showEditModal(fullIndices, task);
             taskActions.appendChild(editBtn);
 
-            const deleteBtn = document.createElement('button');
-            deleteBtn.className = 'icon-btn delete-btn';
-            deleteBtn.title = '删除任务';
-            deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
-            deleteBtn.onclick = () => this.handleDeleteTask(fullIndices);
-            taskActions.appendChild(deleteBtn);
+            if (canEdit) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'icon-btn delete-btn';
+                deleteBtn.title = '删除任务';
+                deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+                deleteBtn.onclick = () => this.handleDeleteTask(fullIndices);
+                taskActions.appendChild(deleteBtn);
+            }
             
             taskHeader.appendChild(taskActions);
             taskEl.appendChild(taskHeader);
@@ -1665,11 +1945,15 @@ ${JSON.stringify(this.state.timeline)}
                 <textarea placeholder="添加评论..." rows="1" required></textarea>
                 <button type="submit" class="primary-btn">发布</button>
             `;
+            if (!canEdit) {
+                newCommentForm.querySelector('textarea')!.disabled = true;
+                newCommentForm.querySelector('button')!.disabled = true;
+            }
             newCommentForm.addEventListener('submit', (e) => {
                 e.preventDefault();
                 const textarea = newCommentForm.querySelector('textarea')!;
                 this.handleAddComment(fullIndices, textarea.value);
-                textarea.value = ''; // This won't work perfectly due to re-render, but it's a good UX attempt.
+                textarea.value = '';
             });
             newCommentForm.querySelector('textarea')?.addEventListener('input', function() {
                 this.style.height = 'auto';
@@ -1690,23 +1974,40 @@ ${JSON.stringify(this.state.timeline)}
 
 
             if (task.子任务 && task.子任务.length > 0) {
-                taskEl.appendChild(this.createTasksList(task.子任务, baseIndices, currentPath));
+                taskEl.appendChild(this.createTasksList(task.子任务, baseIndices, currentPath, canEdit));
             }
 
             tasksList.appendChild(taskEl);
         });
 
         listContainer.appendChild(tasksList);
-        const addBtn = document.createElement('button');
-        addBtn.className = 'add-task-btn';
-        addBtn.textContent = '+ 添加任务';
-        addBtn.onclick = () => this.handleAddTask(baseIndices, parentPath);
-        listContainer.appendChild(addBtn);
+        if (canEdit) {
+            const addBtn = document.createElement('button');
+            addBtn.className = 'add-task-btn';
+            addBtn.textContent = '+ 添加任务';
+            addBtn.onclick = () => this.handleAddTask(baseIndices, parentPath);
+            listContainer.appendChild(addBtn);
+        }
 
         return listContainer;
     }
 
     // --- UTILITIES ---
+    // FIX: Add missing permission check method.
+    private canEditProject(): boolean {
+        if (!this.state.currentUser || !this.state.timeline) {
+            return false;
+        }
+        // The owner can always edit.
+        if (this.state.timeline.ownerId === this.state.currentUser.id) {
+            return true;
+        }
+        // Members with Admin or Editor roles can edit.
+        return this.state.timeline.members.some(
+            member => member.userId === this.state.currentUser!.id && (member.role === 'Admin' || member.role === 'Editor')
+        );
+    }
+
     private *flattenTasks(): Generator<{ task: 任务; indices: Indices; path: string[] }> {
         if (!this.state.timeline) return;
         for (const [phaseIndex, phase] of this.state.timeline.阶段.entries()) {
@@ -1738,7 +2039,6 @@ ${JSON.stringify(this.state.timeline)}
       const { status, priority, assignee } = this.state.filters;
       const { sortBy } = this.state;
 
-      // Filtering
       if (status.length > 0) {
         tasks = tasks.filter(t => status.includes(t.task.状态));
       }
@@ -1749,7 +2049,6 @@ ${JSON.stringify(this.state.timeline)}
         tasks = tasks.filter(t => t.task.负责人 && assignee.some(a => t.task.负责人!.includes(a)));
       }
       
-      // Sorting
       if (sortBy !== 'default') {
         const priorityMap = { '高': 3, '中': 2, '低': 1 };
         tasks.sort((a, b) => {
@@ -1794,7 +2093,6 @@ ${JSON.stringify(this.state.timeline)}
         };
         taskCopy = filterRecursively(taskCopy);
 
-        // Sorting (at each level)
         const sortRecursively = (taskList: 任务[]) => {
             if (sortBy !== 'default') {
                 const priorityMap = { '高': 3, '中': 2, '低': 1 };
@@ -1842,28 +2140,26 @@ ${JSON.stringify(this.state.timeline)}
     
         const tasksWithDates = this.getProcessedTasks().filter(t => t.task.开始时间);
         if (tasksWithDates.length === 0) {
-            this.timelineContainer.innerHTML = `<p>没有符合筛选条件的任务，或任务未设置开始时间。</p>`;
+            this.timelineContainer.innerHTML = `<p>沒有符合篩選條件的任務，或任務未設置開始時間。</p>`;
             return;
         }
     
         const dates = tasksWithDates.flatMap(t => [this.parseDate(t.task.开始时间), this.parseDate(t.task.截止日期)])
                                    .filter((d): d is Date => d !== null);
         if (dates.length === 0) {
-            this.timelineContainer.innerHTML = `<p>没有带日期的任务可供显示。</p>`;
+            this.timelineContainer.innerHTML = `<p>沒有帶日期的任務可供顯示。</p>`;
             return;
         }
         
         const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
         const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
     
-        // Fix: Destructure `ganttGranularity` from state and alias it to `granularity`.
         const { ganttGranularity: granularity, ganttZoomLevel } = this.state;
         
         let headerUnits: { label: string, span: number }[] = [];
         let subHeaderUnits: { label: string, isWeekend?: boolean }[] = [];
         let totalUnits = 0;
     
-        // Calculate timeline units based on granularity
         if (granularity === 'days') {
             minDate.setDate(minDate.getDate() - 2);
             maxDate.setDate(maxDate.getDate() + 2);
@@ -1931,7 +2227,6 @@ ${JSON.stringify(this.state.timeline)}
         container.className = 'gantt-container';
         container.style.gridTemplateColumns = `300px minmax(${totalUnits * ganttZoomLevel}px, 1fr)`;
     
-        // Header
         const header = document.createElement('div');
         header.className = 'gantt-header';
         header.innerHTML = `
@@ -1943,7 +2238,6 @@ ${JSON.stringify(this.state.timeline)}
         `;
         container.appendChild(header);
     
-        // Body
         const body = document.createElement('div');
         body.className = 'gantt-body';
         const taskListContainer = document.createElement('div');
@@ -2056,7 +2350,6 @@ ${JSON.stringify(this.state.timeline)}
         const container = document.createElement('div');
         container.className = 'calendar-view';
         
-        // Header
         const header = document.createElement('div');
         header.className = 'calendar-header';
         const prevBtn = document.createElement('button');
@@ -2074,7 +2367,6 @@ ${JSON.stringify(this.state.timeline)}
         header.appendChild(nextBtn);
         container.appendChild(header);
 
-        // Grid
         const grid = document.createElement('div');
         grid.className = 'calendar-grid';
         const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
@@ -2139,14 +2431,14 @@ ${JSON.stringify(this.state.timeline)}
     private getWeekStartDate(d: Date): Date {
         const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
         const day = date.getDay();
-        const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday (0) to be start of week
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
         return new Date(date.setDate(diff));
     }
 
     private renderWorkloadView(): void {
         const tasks = Array.from(this.flattenTasks()).filter(t => t.task.负责人 && t.task.开始时间);
         if (tasks.length === 0) {
-            this.timelineContainer.innerHTML = `<p>没有可供分析的任务。请确保任务已分配负责人并设置了开始时间。</p>`;
+            this.timelineContainer.innerHTML = `<p>沒有可供分析的任務。請確保任務已分配負責人並設置了開始時間。</p>`;
             return;
         }
     
@@ -2238,7 +2530,7 @@ ${JSON.stringify(this.state.timeline)}
     
     // --- DEPENDENCY MAP VIEW ---
     private renderDependencyMap(): void {
-        document.getElementById('dep-map-overlay')?.remove(); // Clean up previous
+        document.getElementById('dep-map-overlay')?.remove();
         
         const overlay = document.createElement('div');
         overlay.id = 'dep-map-overlay';
@@ -2271,7 +2563,7 @@ ${JSON.stringify(this.state.timeline)}
 
         const flatTasks = Array.from(this.flattenTasks());
         if (flatTasks.length === 0) {
-            container.innerHTML = `<p>没有任务可供展示。</p>`;
+            container.innerHTML = `<p>沒有任務可供展示。</p>`;
             return;
         }
 
@@ -2280,7 +2572,6 @@ ${JSON.stringify(this.state.timeline)}
         svg.innerHTML = `<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" /></marker></defs>`;
         container.appendChild(svg);
         
-        // --- Node Positioning & Rendering ---
         const taskMap = new Map(flatTasks.map(item => [item.task.id, item]));
         const adj: Record<string, string[]> = {};
         const revAdj: Record<string, string[]> = {};
@@ -2312,7 +2603,6 @@ ${JSON.stringify(this.state.timeline)}
             currentQueue = Array.from(nextQueue);
         }
 
-        // --- Render Nodes ---
         const nodeElements: Record<string, HTMLElement> = {};
         const colWidth = 250;
         const rowHeight = 120;
@@ -2347,7 +2637,6 @@ ${JSON.stringify(this.state.timeline)}
         container.style.width = `${maxWidth}px`;
         container.style.height = `${maxHeight}px`;
 
-        // --- Render Edges ---
         setTimeout(() => {
             flatTasks.forEach(({ task }) => {
                 (task.dependencies || []).forEach(depId => {
@@ -2366,7 +2655,6 @@ ${JSON.stringify(this.state.timeline)}
             });
         }, 0);
 
-        // --- Pan & Zoom ---
         let isPanning = false;
         let startX = 0, startY = 0;
         let transX = 0, transY = 0;
@@ -2421,10 +2709,9 @@ ${JSON.stringify(this.state.timeline)}
             name: string;
             type: 'project' | 'phase' | 'nested-project' | 'task';
             data: any;
-            indices?: Indices; // Only for tasks
+            indices?: Indices;
             children: MindMapNode[];
             parent?: MindMapNode;
-            // Layout properties
             x: number;
             y: number;
             subtreeHeight: number;
@@ -2548,7 +2835,6 @@ ${JSON.stringify(this.state.timeline)}
         calculateLayout(root);
         assignCoordinates(root, 0);
 
-        // --- Rendering ---
         this.timelineContainer.innerHTML = '';
         this.timelineContainer.className = 'mindmap-view';
         
@@ -2557,7 +2843,6 @@ ${JSON.stringify(this.state.timeline)}
         const container = document.createElement('div');
         container.className = 'mindmap-container';
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        // FIX: Use setAttribute for SVG element classes, as .className is read-only.
         svg.setAttribute('class', 'mindmap-connectors');
         
         container.appendChild(svg);
@@ -2627,7 +2912,6 @@ ${JSON.stringify(this.state.timeline)}
             }
         });
 
-        // --- Interactivity & Controls ---
         let scale = 1, panX = 0, panY = 0;
         let isPanning = false, startX = 0, startY = 0;
 
@@ -2693,7 +2977,6 @@ ${JSON.stringify(this.state.timeline)}
         this.timelineContainer.appendChild(viewport);
         this.timelineContainer.appendChild(controls);
 
-        // Initial fit
         setTimeout(() => controls.querySelector<HTMLButtonElement>('button[data-action="fit"]')?.click(), 100);
     }
 }
