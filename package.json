@@ -4,7 +4,7 @@
   "private": true,
   "description": "Backend services for the Chuijiao application.",
   "scripts": {
-    "build": "esbuild index.tsx --bundle --outfile=index.js --target=es2020 --jsx=automatic --external:@google/genai"
+    "build": "mkdir -p public && cp index.html index.css public/ && esbuild index.tsx --bundle --outfile=public/index.js --target=es2020 --jsx=automatic --external:@google/genai"
   },
   "dependencies": {
     "@vercel/postgres": "^0.9.0",
