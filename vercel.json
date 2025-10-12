@@ -1,3 +1,17 @@
 {
-  "framework": null
+  "builds": [
+    {
+      "src": "api/**/*.ts",
+      "use": "@vercel/node"
+    },
+    { "src": "index.html", "use": "@vercel/static" },
+    { "src": "index.css", "use": "@vercel/static" },
+    { "src": "index.tsx", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/index.tsx", "dest": "/index.tsx" },
+    { "src": "/index.css", "dest": "/index.css" },
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/", "dest": "/index.html" }
+  ]
 }

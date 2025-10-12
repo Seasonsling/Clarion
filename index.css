@@ -276,8 +276,21 @@ textarea#quick-add-input:focus {
     border-radius: 8px;
     border: 1px solid var(--border-color);
 }
+.history-item-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
 .history-item-name {
     font-weight: 600;
+    color: var(--text-primary);
+}
+.role-badge {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+    background-color: var(--accent-color-light);
     color: var(--text-primary);
 }
 .history-item-actions {
@@ -371,12 +384,21 @@ textarea#quick-add-input:focus {
     grid-area: name;
     font-size: 2.2rem;
     font-weight: 700;
-    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
 }
-#project-name:hover {
-    background: var(--secondary-color);
-    border-radius: 8px;
+.readonly-badge {
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 0.3rem 0.8rem;
+    border-radius: 20px;
+    background-color: var(--secondary-color);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
 }
+
+/* User Display & Avatar */
 #user-display {
     grid-area: user;
     justify-self: end;
@@ -385,10 +407,30 @@ textarea#quick-add-input:focus {
     gap: 1rem;
     font-size: 0.9rem;
 }
-#user-display #logout-btn {
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.user-actions .secondary-btn {
     font-size: 0.9rem;
     padding: 0.4rem 0.8rem;
 }
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    border: 2px solid var(--primary-color);
+    box-shadow: 0 0 0 1px var(--border-color);
+}
+
 
 .view-switcher {
     grid-area: switcher;
@@ -864,6 +906,18 @@ textarea#quick-add-input:focus {
     align-items: center;
     flex-wrap: wrap;
 }
+.assignee-avatars {
+    display: flex;
+}
+.assignee-avatars .avatar {
+    width: 24px;
+    height: 24px;
+    margin-left: -8px;
+    font-size: 0.7rem;
+}
+.assignee-avatars .avatar:first-child {
+    margin-left: 0;
+}
 
 .task-meta span {
     display: inline-flex;
@@ -1021,6 +1075,7 @@ input.inline-edit:focus {
     color: var(--text-secondary);
 }
 .comment-content {
+    padding-left: 40px; /* Align with author text */
     line-height: 1.6;
     color: var(--text-primary);
     white-space: pre-wrap;
@@ -1223,11 +1278,18 @@ input.inline-edit:focus {
 }
 
 /* Members Modal Specifics */
+.modal-body {
+    overflow-y: auto;
+    flex-grow: 1;
+}
 .members-list {
     list-style: none;
-    max-height: 200px;
+    max-height: 250px;
     overflow-y: auto;
     margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 .member-item {
     display: flex;
@@ -1240,15 +1302,10 @@ input.inline-edit:focus {
     background-color: var(--secondary-color);
 }
 .member-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     font-weight: 600;
-}
-.member-info .role-tag {
-    font-size: 0.8rem;
-    margin-left: 0.5rem;
-    background: #ccc;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    color: var(--text-primary);
 }
 .member-actions {
     display: flex;
@@ -1258,18 +1315,28 @@ input.inline-edit:focus {
 .member-actions select {
     font-size: 0.9rem;
     padding: 0.25rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--primary-color);
 }
-.add-member-form {
-    display: flex;
-    gap: 0.5rem;
+.invite-section {
     border-top: 1px solid var(--border-color);
     padding-top: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
 }
-.add-member-form input {
+.invite-section h5 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+}
+.form-group-inline {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+.form-group-inline select, .form-group-inline input {
     flex-grow: 1;
-}
-.add-member-form button {
-    flex-shrink: 0;
 }
 
 /* Report Modal Specifics */
@@ -1459,6 +1526,12 @@ input.inline-edit:focus {
 .kanban-card h4 {
   font-size: 1rem;
   margin-bottom: 0.5rem;
+}
+.kanban-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.75rem;
 }
 .kanban-card-meta {
   font-size: 0.8rem;
@@ -1893,17 +1966,7 @@ input.inline-edit:focus {
   display: flex;
   gap: 0.75rem;
   width: 100%;
-}
-.chat-message .avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background-color: var(--secondary-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  flex-shrink: 0;
+  align-items: flex-start;
 }
 .chat-message .message-content {
   background-color: var(--secondary-color);
@@ -1922,10 +1985,6 @@ input.inline-edit:focus {
 .chat-message.user-message .message-content {
   background-color: var(--accent-color);
   color: white;
-}
-.chat-message.model-message .avatar {
-    background-color: var(--accent-color-light);
-    color: var(--text-primary);
 }
 .chat-message-actions {
     display: flex;

@@ -1,15 +1,26 @@
-
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 // --- Data Interfaces for Users and Collaboration ---
-interface User {
-  id: string;
-  username: string;
-  password?: string; // Stored in plain text for this simulation
+interface UserProfile {
+  displayName: string;
+  avatarUrl?: string;
+  // A color derived from username for UI consistency
+  color: string; 
 }
 
-type ProjectMemberRole = 'Admin' | 'Editor';
+// User object, password is no longer stored on the client
+interface User {
+  id: string; // This will come from the database ID
+  username: string;
+  profile: UserProfile;
+}
+
+// A new interface for the currently logged-in user, including their auth token
+interface CurrentUser extends User {
+    token: string;
+}
+
+type ProjectMemberRole = 'Admin' | 'Editor' | 'Viewer';
 
 interface ProjectMember {
   userId: string;
@@ -18,7 +29,7 @@ interface ProjectMember {
 
 // --- Data Interfaces for the timeline (in Chinese) ---
 interface 评论 {
-  发言人: string;
+  发言人Id: string; // Changed from string to userId
   内容: string;
   时间戳: string;
 }
@@ -34,7 +45,7 @@ interface 任务 {
   详情?: string;
   开始时间?: string;
   截止日期?: string;
-  负责人?: string;
+  负责人Ids?: string[]; // Changed from string to array of userIds
   备注?: string;
   已完成: boolean;
   子任务?: 任务[];
@@ -55,6 +66,7 @@ interface 阶段 {
 }
 
 interface 时间轴数据 {
+  id: string; // Unique project ID
   项目名称: string;
   阶段: 阶段[];
   ownerId: string;
@@ -72,8 +84,10 @@ interface ChatMessage {
 }
 
 interface AppState {
-  currentUser: User | null;
-  allUsers: User[];
+  currentUser: CurrentUser | null;
+  // allUsers is kept for now to support avatar lookups for existing local projects.
+  // This will be replaced when projects are moved to the backend.
+  allUsers: User[]; 
   projectsHistory: 时间轴数据[];
   timeline: 时间轴数据 | null;
   isLoading: boolean;
@@ -96,6 +110,7 @@ interface AppState {
   mindMapState: {
     collapsedNodes: Set<string>;
   };
+  apiKey: string | null;
 }
 
 interface Indices {
@@ -136,6 +151,7 @@ class TimelineApp {
     mindMapState: {
         collapsedNodes: new Set<string>(),
     },
+    apiKey: null,
   };
 
   private ai: GoogleGenAI;
@@ -183,14 +199,63 @@ class TimelineApp {
   private chatFormEl: HTMLFormElement;
   private chatInputEl: HTMLTextAreaElement;
   private chatSendBtn: HTMLButtonElement;
+  // API Key Modal Elements
+  private apiKeyModalOverlay: HTMLElement;
+  private apiKeyForm: HTMLFormElement;
+  private apiKeyInput: HTMLInputElement;
+  private apiKeyErrorEl: HTMLElement;
 
 
   constructor() {
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    this.loadState();
+    this.ai = new GoogleGenAI({ apiKey: this.state.apiKey || '' });
     this.cacheDOMElements();
     this.addEventListeners();
-    this.loadState();
+    this.handleUrlInvitation(); // Check for invites on load
     this.render();
+  }
+  
+  private handleUrlInvitation() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const projectId = urlParams.get('projectId');
+      
+      if (projectId && this.state.currentUser) {
+          this.joinProject(projectId, this.state.currentUser.id);
+          // Clean up URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+      }
+  }
+  
+  private joinProject(projectId: string, userId: string) {
+      // NOTE: This logic is still client-side. It will be moved to the backend
+      // when project data is migrated.
+      const projectIndex = this.state.projectsHistory.findIndex(p => p.id === projectId);
+      if (projectIndex === -1) {
+          alert("邀请链接无效或项目已不存在。");
+          return;
+      }
+      
+      const project = this.state.projectsHistory[projectIndex];
+      const isAlreadyMember = project.members.some(m => m.userId === userId);
+
+      if (!isAlreadyMember) {
+          const newMember: ProjectMember = { userId: userId, role: 'Viewer' }; // Default role
+          project.members.push(newMember);
+          
+          const newHistory = [...this.state.projectsHistory];
+          newHistory[projectIndex] = project;
+          
+          this.setState({
+              projectsHistory: newHistory,
+              timeline: project, // Automatically load the project
+              currentView: 'vertical'
+          });
+          
+          alert(`成功加入项目 "${project.项目名称}"！您的默认角色是“观察员”。`);
+      } else {
+          // If already a member, just load the project
+          this.setState({ timeline: project, currentView: 'vertical' });
+      }
   }
 
   private cacheDOMElements(): void {
@@ -237,6 +302,11 @@ class TimelineApp {
     this.chatFormEl = document.getElementById('chat-form') as HTMLFormElement;
     this.chatInputEl = document.getElementById('chat-input') as HTMLTextAreaElement;
     this.chatSendBtn = document.getElementById('chat-send-btn') as HTMLButtonElement;
+    // API Key Modal
+    this.apiKeyModalOverlay = document.getElementById('api-key-modal-overlay')!;
+    this.apiKeyForm = document.getElementById('api-key-form') as HTMLFormElement;
+    this.apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement;
+    this.apiKeyErrorEl = document.getElementById('api-key-error')!;
   }
 
   private addEventListeners(): void {
@@ -291,29 +361,106 @@ class TimelineApp {
         }
     });
 
+    // API Key Modal Listener
+    this.apiKeyForm.addEventListener('submit', this.handleApiKeySubmit.bind(this));
+    
+    // Pseudo real-time sync listener (for projects only now)
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'timelineAppData' && e.newValue) {
+            const oldData = JSON.parse(e.oldValue || '{}');
+            const newData = JSON.parse(e.newValue);
+            
+            // Only reload if project data changed. User auth is handled by token.
+            if(JSON.stringify(oldData.projects) !== JSON.stringify(newData.projects)) {
+                this.loadState();
+                
+                if (this.state.timeline) {
+                    const updatedTimeline = this.state.projectsHistory.find(p => p.id === this.state.timeline?.id);
+                    this.setState({ timeline: updatedTimeline || null }, true);
+                } else {
+                    this.render(); 
+                }
+            }
+        }
+    });
   }
 
-  // FIX: Add missing authentication handler methods.
+  // --- UTILITIES ---
+  private stringToColor(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    let color = '#';
+    for (let i = 0; i < 3; i++) {
+      const value = (hash >> (i * 8)) & 0xFF;
+      color += ('00' + value.toString(16)).substr(-2);
+    }
+    return color;
+  }
+  
+  private renderUserAvatar(userId: string): string {
+      const user = this.state.allUsers.find(u => u.id === userId) || (this.state.currentUser?.id === userId ? this.state.currentUser : null);
+      if (!user) {
+          return `<div class="avatar" style="background-color: #ccc;">?</div>`;
+      }
+      
+      if (user.profile.avatarUrl) {
+          return `<img src="${user.profile.avatarUrl}" alt="${user.profile.displayName}" class="avatar">`;
+      }
+      
+      const initials = user.profile.displayName.substring(0, 2).toUpperCase();
+      return `<div class="avatar" style="background-color: ${user.profile.color}; color: #fff;" title="${user.profile.displayName}">${initials}</div>`;
+  }
+  
+  // --- AUTH & USER MGMT ---
   private handleAuthSwitch(view: 'login' | 'register'): void {
     this.setState({ authView: view });
   }
 
-  private handleLogin(event: Event): void {
+  private async handleLogin(event: Event): Promise<void> {
     event.preventDefault();
+    this.loginErrorEl.textContent = '';
     const username = (this.loginForm.querySelector('input[name="username"]') as HTMLInputElement).value;
     const password = (this.loginForm.querySelector('input[name="password"]') as HTMLInputElement).value;
-    const user = this.state.allUsers.find(u => u.username === username && u.password === password);
+    
+    this.setState({ isLoading: true, loadingText: "登录中..." });
+    try {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+        });
 
-    if (user) {
-        this.loginErrorEl.textContent = '';
-        this.setState({ currentUser: user });
-    } else {
-        this.loginErrorEl.textContent = "用户名或密码无效。";
+        if (response.ok) {
+            const { token } = await response.json();
+            // Decode token to get user info
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const currentUser: CurrentUser = {
+                id: payload.userId.toString(), // Ensure ID is a string
+                username: payload.username,
+                profile: payload.profile,
+                token: token,
+            };
+            this.setState({ currentUser: currentUser });
+            this.handleUrlInvitation();
+            if (!this.state.apiKey) {
+                this.showApiKeyModal(true);
+            }
+        } else {
+            const error = await response.json();
+            this.loginErrorEl.textContent = error.message || "用户名或密码无效。";
+        }
+    } catch (error) {
+        this.loginErrorEl.textContent = "登录时发生网络错误。";
+    } finally {
+        this.setState({ isLoading: false });
     }
   }
 
-  private handleRegister(event: Event): void {
+  private async handleRegister(event: Event): Promise<void> {
     event.preventDefault();
+    this.registerErrorEl.textContent = '';
     const username = (this.registerForm.querySelector('input[name="username"]') as HTMLInputElement).value;
     const password = (this.registerForm.querySelector('input[name="password"]') as HTMLInputElement).value;
 
@@ -321,41 +468,59 @@ class TimelineApp {
         this.registerErrorEl.textContent = "用户名至少3个字符，密码至少4个字符。";
         return;
     }
-    if (this.state.allUsers.some(u => u.username === username)) {
-        this.registerErrorEl.textContent = "此用户名已被占用。";
-        return;
+    
+    this.setState({ isLoading: true, loadingText: "注册中..." });
+    try {
+        const response = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+        });
+
+        if (response.ok) {
+             // Automatically log in after successful registration
+            await this.handleLogin(event);
+        } else {
+            const error = await response.json();
+            this.registerErrorEl.textContent = error.message || "注册失败。";
+        }
+    } catch (error) {
+        this.registerErrorEl.textContent = "注册时发生网络错误。";
+    } finally {
+        this.setState({ isLoading: false });
     }
-
-    const newUser: User = {
-        id: `user-${Date.now()}`,
-        username,
-        password
-    };
-
-    const newUsers = [...this.state.allUsers, newUser];
-    this.registerErrorEl.textContent = '';
-    this.setState({
-        allUsers: newUsers,
-        currentUser: newUser,
-    });
   }
 
   private setState(newState: Partial<AppState>, shouldRender: boolean = true): void {
+    const oldUser = this.state.currentUser;
     this.state = { ...this.state, ...newState };
+    
     if (shouldRender) {
       this.render();
     }
-    // Always save state when data changes
-    if (newState.projectsHistory !== undefined || newState.allUsers !== undefined || newState.currentUser !== undefined) {
+    
+    // Handle saving state to localStorage
+    if (newState.currentUser !== undefined) {
+      if (newState.currentUser) {
+        // Just logged in
         this.saveState();
+      } else if (oldUser && !newState.currentUser) {
+        // Just logged out
+        localStorage.removeItem('timelineAppData');
+      }
+    } else if (newState.projectsHistory !== undefined || newState.apiKey !== undefined || newState.allUsers !== undefined) {
+      this.saveState();
     }
   }
 
   private saveState(): void {
+    // Now only saves token, API key, and client-side project data.
     const appData = {
-        users: this.state.allUsers,
+        authToken: this.state.currentUser?.token,
+        apiKey: this.state.apiKey,
         projects: this.state.projectsHistory,
-        currentUserId: this.state.currentUser?.id,
+        // Kept for backward compatibility for avatar lookups. To be removed.
+        users: this.state.allUsers,
     };
     localStorage.setItem("timelineAppData", JSON.stringify(appData));
   }
@@ -365,19 +530,39 @@ class TimelineApp {
     if (savedDataJSON) {
         try {
             const savedData = JSON.parse(savedDataJSON);
+            const token = savedData.authToken;
+            let currentUser: CurrentUser | null = null;
+            
+            if (token) {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                // Check if token is expired
+                if (payload.exp * 1000 > Date.now()) {
+                    currentUser = {
+                        id: payload.userId.toString(),
+                        username: payload.username,
+                        profile: payload.profile,
+                        token: token,
+                    };
+                }
+            }
+            
+            // `allUsers` and `projectsHistory` are still loaded from local storage
+            // until they are migrated to the backend.
             const allUsers = Array.isArray(savedData.users) ? savedData.users : [];
             const projectsHistory = Array.isArray(savedData.projects) ? savedData.projects : [];
-            const currentUser = allUsers.find((u: User) => u.id === savedData.currentUserId) || null;
+            const apiKey = savedData.apiKey || null;
             
             this.state = {
                 ...this.state,
+                currentUser,
+                apiKey,
                 allUsers,
                 projectsHistory,
-                currentUser,
             };
-        } catch {
-            // Corrupted data, start fresh
-            this.state = { ...this.state, allUsers: [], projectsHistory: [], currentUser: null };
+        } catch(e) {
+            console.error("Failed to load state, starting fresh.", e);
+            localStorage.removeItem("timelineAppData");
+            this.state = { ...this.state, currentUser: null, projectsHistory: [], allUsers: [], apiKey: null };
         }
     }
   }
@@ -411,11 +596,19 @@ class TimelineApp {
             const data = JSON.parse(result);
             if (data.项目名称 && Array.isArray(data.阶段)) {
                 // Assign ownership to current user upon import
+                data.id = `proj-${Date.now()}`;
                 data.ownerId = this.state.currentUser!.id;
                 data.members = [{ userId: this.state.currentUser!.id, role: 'Admin' }];
                 const newProject = this.postProcessTimelineData(data);
+                
+                // Add current user to `allUsers` if not present, for avatar lookup.
+                const userExists = this.state.allUsers.some(u => u.id === this.state.currentUser!.id);
+                const newAllUsers = !userExists
+                    ? [...this.state.allUsers, {id: this.state.currentUser!.id, username: this.state.currentUser!.username, profile: this.state.currentUser!.profile}]
+                    : this.state.allUsers;
+
                 const newHistory = [...this.state.projectsHistory, newProject];
-                this.setState({ timeline: newProject, projectsHistory: newHistory });
+                this.setState({ timeline: newProject, projectsHistory: newHistory, allUsers: newAllUsers });
             } else {
                 alert("导入失败。文件格式无效或不兼容。");
             }
@@ -432,11 +625,11 @@ class TimelineApp {
       const commentSchema = {
           type: Type.OBJECT,
           properties: {
-              发言人: { type: Type.STRING },
+              发言人Id: { type: Type.STRING, description: "The ID of the user who made the comment" },
               内容: { type: Type.STRING },
               时间戳: { type: Type.STRING, description: "ISO 8601 format timestamp" }
           },
-          required: ["发言人", "内容", "时间戳"]
+          required: ["发言人Id", "内容", "时间戳"]
       };
 
       const createTaskProperties = () => ({
@@ -447,7 +640,7 @@ class TimelineApp {
           详情: { type: Type.STRING },
           开始时间: { type: Type.STRING, description: "格式 YYYY-MM-DD HH:mm" },
           截止日期: { type: Type.STRING, description: "格式 YYYY-MM-DD HH:mm" },
-          负责人: { type: Type.STRING },
+          负责人Ids: { type: Type.ARRAY, items: { type: Type.STRING }, description: "An array of user IDs for the assignees." },
           备注: { type: Type.STRING },
           讨论: { type: Type.ARRAY, items: commentSchema, description: "与任务相关的讨论记录" },
           dependencies: { type: Type.ARRAY, items: { type: Type.STRING }, description: "An array of task IDs that this task depends on." }
@@ -469,12 +662,16 @@ class TimelineApp {
   }
 
   private getCurrentDateContext(): string {
-      // 'sv-SE' locale gives a format like '2024-07-25 15:45', which is perfect for the AI.
       const now = new Date().toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
       return `请注意：当前日期和时间是 ${now}。请根据此时间解析任何相对时间表述（例如“明天下午”、“下周”）。所有输出的时间都应为“YYYY-MM-DD HH:mm”格式，精确到分钟。`;
   }
 
   private async handleGenerateClick(): Promise<void> {
+    if (!this.state.apiKey) {
+        this.showApiKeyModal(true);
+        alert("请先提供您的 API 密钥。");
+        return;
+    }
     if (!this.state.currentUser) {
         alert("请先登录。");
         return;
@@ -490,7 +687,7 @@ class TimelineApp {
     try {
       const responseSchema = this.createTimelineSchema();
       const currentDateContext = this.getCurrentDateContext();
-      const prompt = `${currentDateContext} 为以下项目描述，创建一份详尽的、分阶段的中文项目计划。计划应包含项目名称、阶段、任务及可嵌套的子任务。每个任务需包含：任务名称、状态（'待办'、'进行中'或'已完成'）、优先级（'高'、'中'或'低'）、详情、开始时间、截止日期（格式均为 YYYY-MM-DD HH:mm）、负责人和备注。
+      const prompt = `${currentDateContext} 为以下项目描述，创建一份详尽的、分阶段的中文项目计划。计划应包含项目名称、阶段、任务及可嵌套的子任务。每个任务需包含：任务名称、状态（'待办'、'进行中'或'已完成'）、优先级（'高'、'中'或'低'）、详情、开始时间、截止日期（格式均为 YYYY-MM-DD HH:mm）、负责人和备注。如果描述中提到了负责人，请将他们的名字放入“负责人”字段。
 **极其重要**:
 1.  **唯一ID**: 你必须为每一个任务（包括子任务）生成一个在整个项目中唯一的字符串 'id'。
 2.  **依赖关系**: 你必须识别任务间的依赖关系。例如，如果“任务B”必须在“任务A”完成后才能开始，你必须将“任务A”的 'id' 添加到“任务B”的 'dependencies' 数组中。
@@ -510,21 +707,53 @@ ${projectDescription}
       const parsedData = JSON.parse(response.text);
       const timelineData: 时间轴数据 = {
         ...parsedData,
+        id: `proj-${Date.now()}`,
         ownerId: this.state.currentUser.id,
         members: [{ userId: this.state.currentUser.id, role: 'Admin' }],
       };
+      
+      const userExists = this.state.allUsers.some(u => u.id === this.state.currentUser!.id);
+      const newAllUsers = !userExists
+          ? [...this.state.allUsers, {id: this.state.currentUser!.id, username: this.state.currentUser!.username, profile: this.state.currentUser!.profile}]
+          : this.state.allUsers;
 
       const processedData = this.postProcessTimelineData(timelineData);
       const newHistory = [...this.state.projectsHistory, processedData];
-      this.setState({ timeline: processedData, projectsHistory: newHistory, currentView: 'vertical', chatHistory: [], isChatOpen: false });
+      this.setState({ timeline: processedData, projectsHistory: newHistory, allUsers: newAllUsers, currentView: 'vertical', chatHistory: [], isChatOpen: false });
     } catch (error) {
       console.error("生成计划时出错：", error);
-      alert("计划生成失败，请稍后重试。");
+      alert("计划生成失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
     } finally {
       this.setState({ isLoading: false });
     }
   }
   
+  private showApiKeyModal(show: boolean): void {
+      this.apiKeyErrorEl.classList.add('hidden');
+      this.apiKeyErrorEl.textContent = '';
+      this.apiKeyModalOverlay.classList.toggle('hidden', !show);
+      this.apiKeyModalOverlay.classList.toggle('visible', show);
+      if (show) {
+          this.apiKeyInput.focus();
+      }
+  }
+
+  private handleApiKeySubmit(event: Event): void {
+      event.preventDefault();
+      const apiKey = this.apiKeyInput.value.trim();
+      if (!apiKey) {
+          this.apiKeyErrorEl.textContent = 'API 密钥不能为空。';
+          this.apiKeyErrorEl.classList.remove('hidden');
+          return;
+      }
+      this.apiKeyErrorEl.textContent = '';
+      this.apiKeyErrorEl.classList.add('hidden');
+
+      this.ai = new GoogleGenAI({ apiKey });
+      this.setState({ apiKey });
+      this.showApiKeyModal(false);
+  }
+
   private postProcessTimelineData(data: 时间轴数据): 时间轴数据 {
       let taskCounter = 0;
       const assignedIds = new Set<string>();
@@ -569,7 +798,7 @@ ${projectDescription}
         for (let i = 0; i < taskPath.length; i++) {
             const index = taskPath[i];
             task = tasks[index];
-            if (!task) return null; // Path is invalid.
+            if (!task) return null;
 
             if (i < taskPath.length - 1) {
                 parent = task;
@@ -659,7 +888,7 @@ ${projectDescription}
                 task.讨论 = [];
             }
             const newComment: 评论 = {
-                发言人: this.state.currentUser.username,
+                发言人Id: this.state.currentUser.id,
                 内容: content,
                 时间戳: new Date().toISOString(),
             };
@@ -671,20 +900,16 @@ ${projectDescription}
     private handleMoveTask(draggedIndices: Indices, dropIndices: Indices, position: 'before' | 'after'): void {
         if (!this.state.timeline) return;
 
-        // Prevent dropping onto self.
-        if (JSON.stringify(draggedIndices) === JSON.stringify(dropIndices)) {
-            return;
-        }
+        if (JSON.stringify(draggedIndices) === JSON.stringify(dropIndices)) return;
 
         const dragResult = this.getTaskFromPath(draggedIndices);
         const dropResult = this.getTaskFromPath(dropIndices);
 
         if (!dragResult || !dropResult) return;
 
-        const { parent: dragParent, task: draggedTask, taskIndex: dragIndex } = dragResult;
+        const { parent: dragParent, taskIndex: dragIndex } = dragResult;
         let { parent: dropParent, taskIndex: dropIndex } = dropResult;
         
-        // Prevent dropping a task into one of its own descendants.
         const dragPathStr = JSON.stringify(draggedIndices.taskPath);
         const dropPathStr = JSON.stringify(dropIndices.taskPath);
         if (dropPathStr.startsWith(dragPathStr.slice(0, -1)) && dragPathStr.length < dropPathStr.length) {
@@ -705,8 +930,7 @@ ${projectDescription}
     }
 
     private updateActiveProjectInHistory(updatedTimeline: 时间轴数据) {
-        const activeProjectName = updatedTimeline.项目名称;
-        const projectIndex = this.state.projectsHistory.findIndex(p => p.项目名称 === activeProjectName && p.ownerId === updatedTimeline.ownerId);
+        const projectIndex = this.state.projectsHistory.findIndex(p => p.id === updatedTimeline.id);
         
         const newHistory = [...this.state.projectsHistory];
         if (projectIndex !== -1) {
@@ -718,46 +942,52 @@ ${projectDescription}
     }
 
   // --- Home Screen Methods ---
-    private handleLoadProject(index: number): void {
-        const projectToLoad = this.getUserProjects()[index];
-        if(projectToLoad) {
-            this.setState({ timeline: projectToLoad, currentView: 'vertical', chatHistory: [], isChatOpen: false });
+    private handleLoadProject(project: 时间轴数据): void {
+        if(project) {
+            this.setState({ timeline: project, currentView: 'vertical', chatHistory: [], isChatOpen: false });
         }
     }
 
-    private handleDeleteProject(index: number): void {
-        if (!this.state.currentUser) return;
-        const projectToDelete = this.getUserProjects()[index];
-        if (!projectToDelete || projectToDelete.ownerId !== this.state.currentUser.id) {
+    private handleDeleteProject(projectToDelete: 时间轴数据): void {
+        if (!this.state.currentUser || projectToDelete.ownerId !== this.state.currentUser.id) {
             alert("只有项目所有者才能删除项目。");
             return;
         }
 
-        if (!confirm("确定要永久废止此征程吗？此操作不可撤销。")) return;
+        if (!confirm(`确定要永久废止此征程 “${projectToDelete.项目名称}” 吗？此操作不可撤销。`)) return;
         
-        const newHistory = this.state.projectsHistory.filter(p => p !== projectToDelete);
+        const newHistory = this.state.projectsHistory.filter(p => p.id !== projectToDelete.id);
         this.setState({ projectsHistory: newHistory, timeline: null });
     }
 
     private async handleQuickAddTask(event: Event): Promise<void> {
         event.preventDefault();
+
+        if (!this.state.apiKey) {
+            this.showApiKeyModal(true);
+            alert("请先提供您的 API 密钥。");
+            return;
+        }
+
         const form = event.currentTarget as HTMLFormElement;
         const projectSelect = form.querySelector('#project-select') as HTMLSelectElement;
         const taskInput = form.querySelector('#quick-add-input') as HTMLTextAreaElement;
         const assigneeInput = form.querySelector('#quick-add-assignee') as HTMLInputElement;
         const deadlineInput = form.querySelector('#quick-add-deadline') as HTMLInputElement;
 
-        const projectIndexInUsersList = parseInt(projectSelect.value, 10);
+        const projectId = projectSelect.value;
         const taskDescription = taskInput.value.trim();
         const assignee = assigneeInput.value.trim();
         const deadline = deadlineInput.value.trim().replace('T', ' ');
 
-        if (isNaN(projectIndexInUsersList) || !taskDescription) {
+        if (!projectId || !taskDescription) {
             alert("请选择一个项目并填写任务描述。");
             return;
         }
         
-        const projectToUpdate = this.getUserProjects()[projectIndexInUsersList];
+        const projectToUpdate = this.state.projectsHistory.find(p => p.id === projectId);
+        if (!projectToUpdate) return;
+        
         const globalProjectIndex = this.state.projectsHistory.indexOf(projectToUpdate);
 
         this.setState({ isLoading: true, loadingText: "智能分析中，请稍候..." });
@@ -800,7 +1030,7 @@ ${JSON.stringify(projectToUpdate)}
             newHistory[globalProjectIndex] = updatedTimeline;
 
             this.setState({
-                timeline: this.state.timeline?.项目名称 === updatedTimeline.项目名称 ? updatedTimeline : this.state.timeline,
+                timeline: this.state.timeline?.id === updatedTimeline.id ? updatedTimeline : this.state.timeline,
                 projectsHistory: newHistory,
             });
             taskInput.value = '';
@@ -809,7 +1039,7 @@ ${JSON.stringify(projectToUpdate)}
 
         } catch (error) {
             console.error("快速追加任务时出错:", error);
-            alert("任务追加失败，请稍后重试。");
+            alert("任务追加失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
         } finally {
             this.setState({ isLoading: false });
         }
@@ -894,7 +1124,7 @@ ${JSON.stringify(projectToUpdate)}
 
         const projectMembers = this.state.timeline?.members.map(m => this.state.allUsers.find(u => u.id === m.userId)).filter(Boolean) as User[];
         const assigneeOptions = projectMembers.map(user => 
-            `<option value="${user.username}" ${task.负责人 === user.username ? 'selected' : ''}>${user.username}</option>`
+            `<option value="${user.id}" ${task.负责人Ids?.includes(user.id) ? 'selected' : ''}>${user.profile.displayName}</option>`
         ).join('');
 
         modalOverlay.innerHTML = `
@@ -928,9 +1158,9 @@ ${JSON.stringify(projectToUpdate)}
                             <option value="低" ${task.优先级 === '低' ? 'selected' : ''}>低</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label for="assignee">负责人</label>
-                        <select id="assignee"><option value="">未分配</option>${assigneeOptions}</select>
+                    <div class="form-group full-width">
+                        <label for="assignee">负责人 (可多选)</label>
+                        <select id="assignee" multiple>${assigneeOptions}</select>
                     </div>
                     <div class="form-group">
                         <label for="startTime">开始时间</label>
@@ -973,7 +1203,10 @@ ${JSON.stringify(projectToUpdate)}
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             const dependenciesSelect = form.querySelector('#dependencies') as HTMLSelectElement;
+            const assigneeSelect = form.querySelector('#assignee') as HTMLSelectElement;
+
             const selectedDependencies = Array.from(dependenciesSelect.selectedOptions).map(option => option.value);
+            const selectedAssignees = Array.from(assigneeSelect.selectedOptions).map(option => option.value);
 
             const updatedTask: 任务 = {
                 ...task,
@@ -981,7 +1214,7 @@ ${JSON.stringify(projectToUpdate)}
                 详情: (form.querySelector('#details') as HTMLTextAreaElement).value,
                 状态: (form.querySelector('#status') as HTMLSelectElement).value as '待办' | '进行中' | '已完成',
                 优先级: (form.querySelector('#priority') as HTMLSelectElement).value as '高' | '中' | '低',
-                负责人: (form.querySelector('#assignee') as HTMLSelectElement).value,
+                负责人Ids: selectedAssignees,
                 开始时间: formatFromDateTimeLocalValue((form.querySelector('#startTime') as HTMLInputElement).value),
                 截止日期: formatFromDateTimeLocalValue((form.querySelector('#deadline') as HTMLInputElement).value),
                 备注: (form.querySelector('#notes') as HTMLTextAreaElement).value,
@@ -998,9 +1231,10 @@ ${JSON.stringify(projectToUpdate)}
         setTimeout(() => modalOverlay.classList.add('visible'), 10);
     }
   
-    // FIX: Add missing method to show the members management modal.
     private showMembersModal(): void {
-        if (!this.state.timeline) return;
+        if (!this.state.timeline || !this.state.currentUser) return;
+        const userRole = this.getUserRole();
+        const canManage = userRole === 'Admin';
 
         const modalOverlay = document.createElement('div');
         modalOverlay.id = 'members-modal-overlay';
@@ -1012,14 +1246,29 @@ ${JSON.stringify(projectToUpdate)}
                 const user = this.state.allUsers.find(u => u.id === member.userId);
                 if (!user) return '';
                 const isOwner = user.id === owner?.id;
+                
+                const roleSelector = canManage && !isOwner
+                    ? `<select class="role-selector" data-user-id="${user.id}">
+                        <option value="Admin" ${member.role === 'Admin' ? 'selected' : ''}>Admin</option>
+                        <option value="Editor" ${member.role === 'Editor' ? 'selected' : ''}>Editor</option>
+                        <option value="Viewer" ${member.role === 'Viewer' ? 'selected' : ''}>Viewer</option>
+                      </select>`
+                    : `<span>${isOwner ? '所有者' : member.role}</span>`;
+
                 return `
                     <div class="member-item">
-                        <span>${user.username} ${isOwner ? '<strong>(所有者)</strong>' : `(${member.role})`}</span>
-                        ${!isOwner && this.canEditProject() ? `
-                            <button class="icon-btn remove-member-btn" data-user-id="${user.id}" title="移除成员">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                            </button>
-                        ` : ''}
+                        <div class="member-info">
+                           ${this.renderUserAvatar(user.id)}
+                           <span>${user.profile.displayName}</span>
+                        </div>
+                        <div class="member-actions">
+                          ${roleSelector}
+                          ${canManage && !isOwner ? `
+                              <button class="icon-btn remove-member-btn" data-user-id="${user.id}" title="移除成员">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                              </button>
+                          ` : ''}
+                        </div>
                     </div>
                 `;
             }).join('');
@@ -1028,32 +1277,44 @@ ${JSON.stringify(projectToUpdate)}
         const nonMemberOptions = () => {
             return this.state.allUsers
                 .filter(u => !this.state.timeline!.members.some(m => m.userId === u.id))
-                .map(u => `<option value="${u.id}">${u.username}</option>`)
+                .map(u => `<option value="${u.id}">${u.profile.displayName}</option>`)
                 .join('');
         };
+        
+        const inviteLink = `${window.location.origin}${window.location.pathname}?projectId=${this.state.timeline.id}`;
 
         modalOverlay.innerHTML = `
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>项目成员管理</h2>
+                    <h2>项目协作</h2>
                     <button class="modal-close-btn">&times;</button>
                 </div>
                 <div class="modal-body">
                     <div class="members-list">
                         ${renderMembersList()}
                     </div>
-                    ${this.canEditProject() ? `
-                    <form class="add-member-form">
-                        <p>添加新成员:</p>
-                        <div class="form-group-inline">
-                            <select id="add-user-select" required>${nonMemberOptions()}</select>
-                            <select id="add-user-role">
-                                <option value="Editor">Editor</option>
-                                <option value="Admin">Admin</option>
-                            </select>
-                            <button type="submit" class="primary-btn">添加</button>
-                        </div>
-                    </form>
+                    ${canManage ? `
+                    <div class="invite-section">
+                      <form class="add-member-form">
+                          <h5>邀请成员</h5>
+                          <div class="form-group-inline">
+                              <select id="add-user-select" required>${nonMemberOptions()}</select>
+                              <select id="add-user-role">
+                                  <option value="Editor">Editor</option>
+                                  <option value="Viewer">Viewer</option>
+                                  <option value="Admin">Admin</option>
+                              </select>
+                              <button type="submit" class="primary-btn">添加</button>
+                          </div>
+                      </form>
+                      <div class="share-link-section">
+                          <h5>或分享链接邀请</h5>
+                          <div class="form-group-inline">
+                            <input type="text" readonly value="${inviteLink}">
+                            <button id="copy-link-btn" class="secondary-btn">复制</button>
+                          </div>
+                      </div>
+                    </div>
                     ` : ''}
                 </div>
             </div>
@@ -1067,44 +1328,68 @@ ${JSON.stringify(projectToUpdate)}
         });
         modalOverlay.querySelector('.modal-close-btn')!.addEventListener('click', close);
         
-        modalOverlay.querySelectorAll('.remove-member-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const userId = (e.currentTarget as HTMLElement).dataset.userId;
-                if (userId && this.state.timeline) {
-                    const updatedTimeline = {
-                        ...this.state.timeline,
-                        members: this.state.timeline.members.filter(m => m.userId !== userId)
-                    };
-                    this.updateActiveProjectInHistory(updatedTimeline);
-                    close();
-                    this.showMembersModal(); // Re-open to show updated list
-                }
+        if (canManage) {
+            modalOverlay.querySelectorAll('.remove-member-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const userId = (e.currentTarget as HTMLElement).dataset.userId;
+                    if (userId && this.state.timeline) {
+                        this.state.timeline.members = this.state.timeline.members.filter(m => m.userId !== userId);
+                        this.updateActiveProjectInHistory(this.state.timeline);
+                        close();
+                        this.showMembersModal();
+                    }
+                });
             });
-        });
 
-        const addForm = modalOverlay.querySelector('.add-member-form');
-        if (addForm) {
-            addForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                const userId = (modalOverlay.querySelector('#add-user-select') as HTMLSelectElement).value;
-                const role = (modalOverlay.querySelector('#add-user-role') as HTMLSelectElement).value as ProjectMemberRole;
-                if (userId && role && this.state.timeline) {
-                     const updatedTimeline = {
-                        ...this.state.timeline,
-                        members: [...this.state.timeline.members, { userId, role }]
-                    };
-                    this.updateActiveProjectInHistory(updatedTimeline);
-                    close();
-                    this.showMembersModal();
-                }
+            modalOverlay.querySelectorAll('.role-selector').forEach(select => {
+                select.addEventListener('change', (e) => {
+                    const target = e.currentTarget as HTMLSelectElement;
+                    const userId = target.dataset.userId;
+                    const newRole = target.value as ProjectMemberRole;
+                    if(userId && this.state.timeline) {
+                        const member = this.state.timeline.members.find(m => m.userId === userId);
+                        if (member) {
+                            member.role = newRole;
+                            this.updateActiveProjectInHistory(this.state.timeline);
+                        }
+                    }
+                });
+            });
+
+            const addForm = modalOverlay.querySelector('.add-member-form');
+            if (addForm) {
+                addForm.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const userId = (modalOverlay.querySelector('#add-user-select') as HTMLSelectElement).value;
+                    const role = (modalOverlay.querySelector('#add-user-role') as HTMLSelectElement).value as ProjectMemberRole;
+                    if (userId && role && this.state.timeline) {
+                         this.state.timeline.members.push({ userId, role });
+                        this.updateActiveProjectInHistory(this.state.timeline);
+                        close();
+                        this.showMembersModal();
+                    }
+                });
+            }
+            
+            modalOverlay.querySelector('#copy-link-btn')?.addEventListener('click', (e) => {
+                const btn = e.currentTarget as HTMLButtonElement;
+                navigator.clipboard.writeText(inviteLink).then(() => {
+                    btn.textContent = '已复制!';
+                    setTimeout(() => { btn.textContent = '复制'; }, 2000);
+                });
             });
         }
-
+        
         setTimeout(() => modalOverlay.classList.add('visible'), 10);
     }
 
     // --- Report Methods ---
     private async handleGenerateReportClick(period: 'weekly' | 'monthly'): Promise<void> {
+        if (!this.state.apiKey) {
+            this.showApiKeyModal(true);
+            alert("请先提供您的 API 密钥。");
+            return;
+        }
         this.showReportModal(true); // Show loading state
 
         try {
@@ -1143,7 +1428,7 @@ Provide the report in a clean, readable format suitable for copying into an emai
             this.showReportModal(false, response.text); // Show result
         } catch (error) {
             console.error("生成报告时出错:", error);
-            this.showReportModal(false, "抱歉，生成报告时发生错误。请稍后重试。"); // Show error
+            this.showReportModal(false, "抱歉，生成报告时发生错误。这可能是由于 API 密钥无效或网络问题导致，请稍后重试。"); // Show error
         }
     }
 
@@ -1234,6 +1519,11 @@ Provide the report in a clean, readable format suitable for copying into an emai
     }
 
     private async submitChat(userInput: string): Promise<void> {
+        if (!this.state.apiKey) {
+            this.showApiKeyModal(true);
+            alert("请先提供您的 API 密钥。");
+            return;
+        }
         if (this.state.isChatLoading) return;
 
         const newHistory: ChatMessage[] = [...this.state.chatHistory, { role: 'user', text: userInput }];
@@ -1320,7 +1610,7 @@ ${JSON.stringify(this.state.timeline)}
 
         } catch (error) {
             console.error("智能助理出错:", error);
-            const errorHistory: ChatMessage[] = [...this.state.chatHistory, { role: 'model', text: "抱歉，理解您的指令时遇到了些问题，请您换一种方式描述，或者稍后再试。" }];
+            const errorHistory: ChatMessage[] = [...this.state.chatHistory, { role: 'model', text: "抱歉，理解您的指令时遇到了些问题，请您换一种方式描述，或者稍后再试。这可能是由于 API 密钥无效或网络问题导致。" }];
             this.setState({ chatHistory: errorHistory });
         } finally {
             this.setState({ isChatLoading: false });
@@ -1328,7 +1618,7 @@ ${JSON.stringify(this.state.timeline)}
     }
 
 
-    // FIX: Add missing render methods for auth and user display.
+    // --- RENDER ---
     private renderAuth(): void {
         this.authSection.classList.remove('hidden');
         this.inputSection.classList.add('hidden');
@@ -1346,9 +1636,19 @@ ${JSON.stringify(this.state.timeline)}
     private renderUserDisplay(): void {
         if (this.state.currentUser) {
             this.userDisplayEl.innerHTML = `
-                <span>欢迎, <strong>${this.state.currentUser.username}</strong></span>
-                <button id="logout-btn" class="secondary-btn">登出</button>
+                <div class="user-info">
+                  ${this.renderUserAvatar(this.state.currentUser.id)}
+                  <span>欢迎, <strong>${this.state.currentUser.profile.displayName}</strong></span>
+                </div>
+                <div class="user-actions">
+                  <button id="api-key-change-btn" class="secondary-btn">API 密钥</button>
+                  <button id="logout-btn" class="secondary-btn">登出</button>
+                </div>
             `;
+            this.userDisplayEl.querySelector('#api-key-change-btn')!.addEventListener('click', () => {
+                this.apiKeyInput.value = this.state.apiKey || '';
+                this.showApiKeyModal(true);
+            });
             this.userDisplayEl.querySelector('#logout-btn')!.addEventListener('click', () => {
                 this.setState({ currentUser: null, timeline: null });
             });
@@ -1356,7 +1656,6 @@ ${JSON.stringify(this.state.timeline)}
             this.userDisplayEl.innerHTML = '';
         }
     }
-  // --- Rendering ---
   private render(): void {
     this.loadingOverlay.classList.toggle("hidden", !this.state.isLoading);
     this.loadingTextEl.textContent = this.state.loadingText;
@@ -1381,11 +1680,16 @@ ${JSON.stringify(this.state.timeline)}
       this.timelineSection.classList.remove("hidden");
       setTimeout(() => this.timelineSection.classList.add('visible'), 10);
       
-      const newProjectNameEl = this.createEditableElement('h2', this.state.timeline.项目名称, {}, '项目名称');
-      if (this.projectNameEl.id !== newProjectNameEl.id || this.projectNameEl.textContent !== newProjectNameEl.textContent) {
-          this.projectNameEl.replaceWith(newProjectNameEl);
-          this.cacheDOMElements();
+      const userRole = this.getUserRole();
+      const readOnly = userRole === 'Viewer';
+      
+      let projectNameHTML = this.state.timeline.项目名称;
+      if (readOnly) {
+        projectNameHTML += ` <span class="readonly-badge">只读模式</span>`;
       }
+      this.projectNameEl.innerHTML = projectNameHTML;
+      
+      this.shareBtn.style.display = userRole === 'Viewer' ? 'none' : 'inline-flex';
       
       this.renderViewSwitcher();
       this.renderViewSpecificControls();
@@ -1418,7 +1722,6 @@ ${JSON.stringify(this.state.timeline)}
     private getUserProjects(): 时间轴数据[] {
         if (!this.state.currentUser) return [];
         return this.state.projectsHistory.filter(p => 
-            p.ownerId === this.state.currentUser!.id || 
             p.members.some(m => m.userId === this.state.currentUser!.id)
         );
     }
@@ -1436,13 +1739,18 @@ ${JSON.stringify(this.state.timeline)}
             const projectSelect = this.quickAddFormEl.querySelector('#project-select') as HTMLSelectElement;
             projectSelect.innerHTML = '';
 
-            userProjects.forEach((project, index) => {
+            userProjects.forEach((project) => {
                 const isOwner = project.ownerId === this.state.currentUser?.id;
-                // Populate history list
+                const member = project.members.find(m => m.userId === this.state.currentUser?.id);
+                const role = isOwner ? '所有者' : member?.role;
+
                 const itemEl = document.createElement('div');
                 itemEl.className = 'history-item';
                 itemEl.innerHTML = `
-                    <span class="history-item-name">${project.项目名称} ${isOwner ? '(所有者)' : ''}</span>
+                    <div class="history-item-info">
+                      <span class="history-item-name">${project.项目名称}</span>
+                      <span class="role-badge">${role}</span>
+                    </div>
                     <div class="history-item-actions">
                         <button class="secondary-btn load-btn">载入</button>
                         ${isOwner ? `<button class="icon-btn delete-btn" title="删除项目">
@@ -1450,15 +1758,15 @@ ${JSON.stringify(this.state.timeline)}
                         </button>` : ''}
                     </div>
                 `;
-                itemEl.querySelector('.load-btn')!.addEventListener('click', () => this.handleLoadProject(index));
+                itemEl.querySelector('.load-btn')!.addEventListener('click', () => this.handleLoadProject(project));
                 if (isOwner) {
-                    itemEl.querySelector('.delete-btn')!.addEventListener('click', () => this.handleDeleteProject(index));
+                    itemEl.querySelector('.delete-btn')!.addEventListener('click', () => this.handleDeleteProject(project));
                 }
                 this.historyListEl.appendChild(itemEl);
 
                 // Populate select dropdown
                 const option = document.createElement('option');
-                option.value = index.toString();
+                option.value = project.id;
                 option.textContent = project.项目名称;
                 projectSelect.appendChild(option);
             });
@@ -1474,7 +1782,10 @@ ${JSON.stringify(this.state.timeline)}
             const messageCore = document.createElement('div');
             messageCore.className = `chat-message ${msg.role}-message`;
             messageCore.innerHTML = `
-                <div class="avatar">${msg.role === 'model' ? '助' : '您'}</div>
+                ${msg.role === 'model' ? 
+                  `<div class="avatar" style="background-color: var(--accent-color-light); color: var(--text-primary);">助</div>` :
+                  this.renderUserAvatar(this.state.currentUser!.id)
+                }
                 <div class="message-content"><p>${msg.text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p></div>
             `;
 
@@ -1523,7 +1834,7 @@ ${JSON.stringify(this.state.timeline)}
             const thinkingEl = document.createElement('div');
             thinkingEl.className = 'chat-message model-message thinking';
             thinkingEl.innerHTML = `
-                <div class="avatar">助</div>
+                <div class="avatar" style="background-color: var(--accent-color-light); color: var(--text-primary);">助</div>
                 <div class="message-content">
                     <span class="dot"></span><span class="dot"></span><span class="dot"></span>
                 </div>
@@ -1580,7 +1891,7 @@ ${JSON.stringify(this.state.timeline)}
   private renderFilterSortControls(): void {
     this.filterSortControlsEl.innerHTML = ''; // Clear previous controls
 
-    const allAssignees = [...new Set(Array.from(this.flattenTasks()).map(item => item.task.负责人 || '').flatMap(a => a.split(/[,，\s]+/)).filter(Boolean).map(name => name.trim()))];
+    const allAssignees = [...new Set(this.state.timeline?.members.map(m => m.userId) || [])];
     
     this.filterSortControlsEl.appendChild(this.createMultiSelectDropdown('status', '状态', ['待办', '进行中', '已完成'], this.state.filters.status));
     this.filterSortControlsEl.appendChild(this.createMultiSelectDropdown('priority', '优先级', ['高', '中', '低'], this.state.filters.priority));
@@ -1617,23 +1928,29 @@ ${JSON.stringify(this.state.timeline)}
     const dropdown = document.createElement('div');
     dropdown.className = 'multi-select-dropdown hidden';
     
-    options.forEach(option => {
+    options.forEach(optionValue => {
         const optionEl = document.createElement('label');
         optionEl.className = 'multi-select-option';
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.value = option;
-        checkbox.checked = selectedOptions.includes(option);
+        checkbox.value = optionValue;
+        checkbox.checked = selectedOptions.includes(optionValue);
 
         checkbox.addEventListener('change', () => {
             const newSelection = checkbox.checked 
-                ? [...selectedOptions, option]
-                : selectedOptions.filter(item => item !== option);
+                ? [...selectedOptions, optionValue]
+                : selectedOptions.filter(item => item !== optionValue);
             this.setState({ filters: { ...this.state.filters, [id]: newSelection } });
         });
         
+        let optionLabel = optionValue;
+        if (id === 'assignee') {
+            const user = this.state.allUsers.find(u => u.id === optionValue);
+            optionLabel = user ? user.profile.displayName : '未知用户';
+        }
+
         optionEl.appendChild(checkbox);
-        optionEl.append(document.createTextNode(option));
+        optionEl.append(document.createTextNode(optionLabel));
         dropdown.appendChild(optionEl);
     });
     
@@ -1746,7 +2063,7 @@ ${JSON.stringify(this.state.timeline)}
         const processedTasks = this.processTaskArray(tasks);
 
         processedTasks.forEach((task, taskIndex) => {
-            const currentPath = [...parentPath, taskIndex];
+            const currentPath = [...parentPath, task.originalIndex!]; // Use original index for correct path
             const fullIndices: Indices = { ...baseIndices, phaseIndex: baseIndices.phaseIndex!, taskPath: currentPath };
 
             const taskEl = document.createElement("li");
@@ -1891,9 +2208,10 @@ ${JSON.stringify(this.state.timeline)}
                 dateSpan.textContent = dateText;
                 metaEl.appendChild(dateSpan);
             }
-            if (task.负责人) {
-                const assigneeSpan = document.createElement('span');
-                assigneeSpan.textContent = `👤 ${task.负责人}`;
+            if (task.负责人Ids && task.负责人Ids.length > 0) {
+                const assigneeSpan = document.createElement('div');
+                assigneeSpan.className = 'assignee-avatars';
+                task.负责人Ids.forEach(id => assigneeSpan.innerHTML += this.renderUserAvatar(id));
                 metaEl.appendChild(assigneeSpan);
             }
             if (metaEl.hasChildNodes()) taskBody.appendChild(metaEl);
@@ -1909,7 +2227,6 @@ ${JSON.stringify(this.state.timeline)}
                 taskEl.appendChild(taskBody);
             }
             
-            // --- Discussion Section ---
             const discussionContainer = document.createElement('div');
             discussionContainer.className = 'task-discussion';
             
@@ -1925,12 +2242,14 @@ ${JSON.stringify(this.state.timeline)}
             commentsList.className = 'comments-list';
             if (task.讨论) {
                 task.讨论.forEach(comment => {
+                    const user = this.state.allUsers.find(u => u.id === comment.发言人Id);
                     const commentEl = document.createElement('li');
                     commentEl.className = 'comment-item';
                     const timestamp = new Date(comment.时间戳).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' });
                     commentEl.innerHTML = `
                         <div class="comment-header">
-                            <strong class="comment-author">${comment.发言人}</strong>
+                            ${this.renderUserAvatar(comment.发言人Id)}
+                            <strong class="comment-author">${user?.profile.displayName || '未知用户'}</strong>
                             <span class="comment-timestamp">${timestamp}</span>
                         </div>
                         <p class="comment-content">${comment.内容}</p>
@@ -1942,6 +2261,7 @@ ${JSON.stringify(this.state.timeline)}
             const newCommentForm = document.createElement('form');
             newCommentForm.className = 'new-comment-form';
             newCommentForm.innerHTML = `
+                ${this.renderUserAvatar(this.state.currentUser!.id)}
                 <textarea placeholder="添加评论..." rows="1" required></textarea>
                 <button type="submit" class="primary-btn">发布</button>
             `;
@@ -1992,20 +2312,16 @@ ${JSON.stringify(this.state.timeline)}
         return listContainer;
     }
 
-    // --- UTILITIES ---
-    // FIX: Add missing permission check method.
+    private getUserRole(): ProjectMemberRole | null {
+        if (!this.state.currentUser || !this.state.timeline) return null;
+        if (this.state.timeline.ownerId === this.state.currentUser.id) return 'Admin';
+        const member = this.state.timeline.members.find(m => m.userId === this.state.currentUser!.id);
+        return member ? member.role : null;
+    }
+
     private canEditProject(): boolean {
-        if (!this.state.currentUser || !this.state.timeline) {
-            return false;
-        }
-        // The owner can always edit.
-        if (this.state.timeline.ownerId === this.state.currentUser.id) {
-            return true;
-        }
-        // Members with Admin or Editor roles can edit.
-        return this.state.timeline.members.some(
-            member => member.userId === this.state.currentUser!.id && (member.role === 'Admin' || member.role === 'Editor')
-        );
+        const role = this.getUserRole();
+        return role === 'Admin' || role === 'Editor';
     }
 
     private *flattenTasks(): Generator<{ task: 任务; indices: Indices; path: string[] }> {
@@ -2046,7 +2362,7 @@ ${JSON.stringify(this.state.timeline)}
         tasks = tasks.filter(t => t.task.优先级 && priority.includes(t.task.优先级));
       }
       if (assignee.length > 0) {
-        tasks = tasks.filter(t => t.task.负责人 && assignee.some(a => t.task.负责人!.includes(a)));
+        tasks = tasks.filter(t => t.task.负责人Ids && assignee.some(a => t.task.负责人Ids!.includes(a)));
       }
       
       if (sortBy !== 'default') {
@@ -2072,20 +2388,22 @@ ${JSON.stringify(this.state.timeline)}
       return tasks;
     }
 
-    private processTaskArray(tasks: 任务[]): 任务[] {
+    private processTaskArray(tasks: 任务[]): (任务 & { originalIndex?: number })[] {
         if (!tasks) return [];
-        let taskCopy = JSON.parse(JSON.stringify(tasks)) as 任务[]; // Deep copy
+        let taskCopy: (任务 & { originalIndex?: number })[] = JSON.parse(JSON.stringify(tasks));
+        taskCopy.forEach((t, i) => t.originalIndex = i);
+
         const { status, priority, assignee } = this.state.filters;
         const { sortBy } = this.state;
     
-        const filterRecursively = (taskList: 任务[]): 任务[] => {
+        const filterRecursively = (taskList: (任务 & { originalIndex?: number })[]): (任务 & { originalIndex?: number })[] => {
             return taskList.filter(task => {
                 const selfMatches = (status.length === 0 || status.includes(task.状态)) &&
                                   (priority.length === 0 || (task.优先级 && priority.includes(task.优先级))) &&
-                                  (assignee.length === 0 || (task.负责人 && assignee.some(a => task.负责人!.includes(a))));
+                                  (assignee.length === 0 || (task.负责人Ids && assignee.some(a => task.负责人Ids!.includes(a))));
                 
                 if (task.子任务) {
-                    task.子任务 = filterRecursively(task.子任务);
+                    task.子任务 = filterRecursively(task.子任务 as any);
                 }
                 
                 return selfMatches || (task.子任务 && task.子任务.length > 0);
@@ -2324,12 +2642,20 @@ ${JSON.stringify(this.state.timeline)}
                 const card = document.createElement('div');
                 card.className = 'kanban-card';
                 card.classList.toggle('completed', task.已完成);
+                
+                let assigneesHTML = '';
+                if (task.负责人Ids && task.负责人Ids.length > 0) {
+                    assigneesHTML = `<div class="assignee-avatars">`;
+                    task.负责人Ids.forEach((id: string) => assigneesHTML += this.renderUserAvatar(id));
+                    assigneesHTML += `</div>`;
+                }
+
                 card.innerHTML = `
                     <div class="kanban-card-path">${path.join(' > ')}</div>
                     <h4>${task.任务名称}</h4>
-                    <div class="kanban-card-meta">
-                        ${task.截止日期 ? `<span>🏁 ${task.截止日期}</span>` : ''}
-                        ${task.负责人 ? `<span>👤 ${task.负责人}</span>` : ''}
+                    <div class="kanban-card-footer">
+                        ${task.截止日期 ? `<span class="kanban-card-meta">🏁 ${task.截止日期}</span>` : ''}
+                        ${assigneesHTML}
                     </div>
                 `;
                 card.onclick = () => this.showEditModal(indices, task);
@@ -2436,7 +2762,7 @@ ${JSON.stringify(this.state.timeline)}
     }
 
     private renderWorkloadView(): void {
-        const tasks = Array.from(this.flattenTasks()).filter(t => t.task.负责人 && t.task.开始时间);
+        const tasks = Array.from(this.flattenTasks()).filter(t => t.task.负责人Ids && t.task.开始时间);
         if (tasks.length === 0) {
             this.timelineContainer.innerHTML = `<p>沒有可供分析的任務。請確保任務已分配負責人並設置了開始時間。</p>`;
             return;
@@ -2446,7 +2772,7 @@ ${JSON.stringify(this.state.timeline)}
         const weekStarts = new Set<number>();
     
         tasks.forEach(({ task }) => {
-            const assignees = (task.负责人 || '').split(/[,，\s]+/).map(name => name.trim()).filter(Boolean);
+            const assignees = task.负责人Ids || [];
             if (assignees.length === 0) return;
     
             const startDate = this.parseDate(task.开始时间);
@@ -2455,17 +2781,21 @@ ${JSON.stringify(this.state.timeline)}
             const weekStart = this.getWeekStartDate(startDate).getTime();
             weekStarts.add(weekStart);
     
-            assignees.forEach(assignee => {
-                if (!workloadData[assignee]) workloadData[assignee] = {};
-                if (!workloadData[assignee][weekStart]) {
-                    workloadData[assignee][weekStart] = { count: 0, tasks: [] };
+            assignees.forEach(assigneeId => {
+                if (!workloadData[assigneeId]) workloadData[assigneeId] = {};
+                if (!workloadData[assigneeId][weekStart]) {
+                    workloadData[assigneeId][weekStart] = { count: 0, tasks: [] };
                 }
-                workloadData[assignee][weekStart].count++;
-                workloadData[assignee][weekStart].tasks.push(task);
+                workloadData[assigneeId][weekStart].count++;
+                workloadData[assigneeId][weekStart].tasks.push(task);
             });
         });
         
-        const allAssignees = Object.keys(workloadData).sort();
+        const allAssigneeIds = Object.keys(workloadData).sort((a,b) => {
+            const userA = this.state.allUsers.find(u=>u.id === a);
+            const userB = this.state.allUsers.find(u=>u.id === b);
+            return (userA?.username || '').localeCompare(userB?.username || '');
+        });
         const sortedWeeks = Array.from(weekStarts).sort();
         let maxWorkload = 1;
         Object.values(workloadData).forEach(assigneeData => {
@@ -2483,10 +2813,11 @@ ${JSON.stringify(this.state.timeline)}
             table.innerHTML += `<div class="workload-header-cell">${d.getMonth()+1}/${d.getDate()} 周</div>`;
         });
     
-        allAssignees.forEach(assignee => {
-            table.innerHTML += `<div class="workload-person-cell">${assignee}</div>`;
+        allAssigneeIds.forEach(assigneeId => {
+            const user = this.state.allUsers.find(u => u.id === assigneeId);
+            table.innerHTML += `<div class="workload-person-cell">${user?.profile.displayName || '未知用户'}</div>`;
             sortedWeeks.forEach(weekTime => {
-                const data = workloadData[assignee]?.[weekTime];
+                const data = workloadData[assigneeId]?.[weekTime];
                 const count = data?.count || 0;
                 
                 const cell = document.createElement('div');
@@ -2506,7 +2837,7 @@ ${JSON.stringify(this.state.timeline)}
                     bar.addEventListener('mouseenter', (e) => {
                         const tooltip = document.createElement('div');
                         tooltip.className = 'workload-tooltip';
-                        tooltip.innerHTML = `<h5>${assignee} - ${new Date(weekTime).toLocaleDateString()}</h5><ul>` + 
+                        tooltip.innerHTML = `<h5>${user?.profile.displayName} - ${new Date(weekTime).toLocaleDateString()}</h5><ul>` + 
                             data.tasks.map(t => `<li>${t.任务名称}</li>`).join('') + 
                             '</ul>';
                         document.body.appendChild(tooltip);
@@ -2614,10 +2945,15 @@ ${JSON.stringify(this.state.timeline)}
                 const item = taskMap.get(taskId);
                 if (!item) return;
                 const { task, indices } = item;
+                
+                const assigneeName = task.负责人Ids && task.负责人Ids.length > 0
+                    ? this.state.allUsers.find(u => u.id === task.负责人Ids![0])?.profile.displayName || '未分配'
+                    : '未分配';
+
                 const node = document.createElement('div');
                 node.className = 'dep-node';
                 node.dataset.status = task.状态;
-                node.innerHTML = `<strong>${task.任务名称}</strong><span>${task.负责人 || '未分配'}</span>`;
+                node.innerHTML = `<strong>${task.任务名称}</strong><span>${assigneeName}</span>`;
                 
                 const x = colIndex * colWidth + 50;
                 const y = rowIndex * rowHeight + 50;

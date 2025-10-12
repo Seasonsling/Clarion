@@ -15,7 +15,11 @@
   <script type="importmap">
 {
   "imports": {
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.22.0"
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.22.0",
+    "jsonwebtoken": "https://aistudiocdn.com/jsonwebtoken@^9.0.2",
+    "bcryptjs": "https://aistudiocdn.com/bcryptjs@^3.0.2",
+    "@vercel/node": "https://aistudiocdn.com/@vercel/node@^5.3.26",
+    "@vercel/postgres": "https://aistudiocdn.com/@vercel/postgres@^0.10.0"
   }
 }
 </script>
@@ -37,26 +41,26 @@
           <form id="login-form">
             <div class="form-group">
               <label for="login-username">用户名</label>
-              <input type="text" id="login-username" required autocomplete="username">
+              <input type="text" id="login-username" name="username" required autocomplete="username">
             </div>
             <div class="form-group">
               <label for="login-password">密码</label>
-              <input type="password" id="login-password" required autocomplete="current-password">
+              <input type="password" id="login-password" name="password" required autocomplete="current-password">
             </div>
-            <p id="login-error" class="error-message hidden"></p>
+            <p id="login-error" class="error-message"></p>
             <button type="submit" class="primary-btn">登录</button>
           </form>
       
           <form id="register-form" class="hidden">
             <div class="form-group">
               <label for="register-username">用户名</label>
-              <input type="text" id="register-username" required autocomplete="username">
+              <input type="text" id="register-username" name="username" required autocomplete="username">
             </div>
             <div class="form-group">
               <label for="register-password">密码</label>
-              <input type="password" id="register-password" required autocomplete="new-password">
+              <input type="password" id="register-password" name="password" required autocomplete="new-password">
             </div>
-            <p id="register-error" class="error-message hidden"></p>
+            <p id="register-error" class="error-message"></p>
             <button type="submit" class="primary-btn">注册并登录</button>
           </form>
         </div>
@@ -164,5 +168,23 @@
         <p></p>
       </footer>
     </main>
+    <div id="api-key-modal-overlay" class="modal-overlay hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>请输入您的 Gemini API 密钥</h2>
+        </div>
+        <form id="api-key-form" class="modal-form">
+          <p>为了使用 AI 功能，您需要提供自己的 Google Gemini API 密钥。此密钥将仅存储在您的浏览器中。</p>
+          <div class="form-group full-width">
+            <label for="api-key-input">API 密钥</label>
+            <input type="password" id="api-key-input" required placeholder="在此处粘贴您的密钥">
+          </div>
+          <p id="api-key-error" class="error-message hidden"></p>
+          <div class="modal-footer">
+            <button type="submit" class="primary-btn">保存密钥</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </body>
 </html>
