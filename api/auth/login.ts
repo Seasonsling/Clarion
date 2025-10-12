@@ -3,19 +3,19 @@ import { sql } from '@vercel/postgres';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-
-if (!JWT_SECRET) {
-  // This will cause the function to fail on startup if the env var is missing, which is good for security.
-  throw new Error('FATAL_ERROR: JWT_SECRET environment variable is not set.');
-}
-
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
 ) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Only POST requests are allowed' });
+  }
+
+  const JWT_SECRET = process.env.JWT_SECRET;
+  if (!JWT_SECRET) {
+    console.error('JWT_SECRET environment variable is not set.');
+    // Do not expose internal configuration details to the client
+    return res.status(500).json({ message: 'Server configuration error.' });
   }
 
   try {
