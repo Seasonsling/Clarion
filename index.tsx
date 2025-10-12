@@ -493,18 +493,40 @@ class TimelineApp {
     return color;
   }
   
-  private renderUserAvatar(userId: string): string {
-      const user = this.state.allUsers.find(u => u.id === userId) || (this.state.currentUser?.id === userId ? this.state.currentUser : null);
-      if (!user) {
-          return `<div class="avatar" style="background-color: #ccc;">?</div>`;
-      }
+  private getInitials(displayName: string): string {
+      if (!displayName) return '?';
+      displayName = displayName.trim();
       
-      if (user.profile.avatarUrl) {
-          return `<img src="${user.profile.avatarUrl}" alt="${user.profile.displayName}" class="avatar">`;
+      const isChinese = /[\u4e00-\u9fa5]/.test(displayName);
+
+      if (isChinese) {
+          return displayName.substring(0, 1);
+      } else {
+          const parts = displayName.split(' ').filter(p => p);
+          if (parts.length > 1) {
+              return parts[parts.length - 1].substring(0, 1).toUpperCase();
+          } else if (parts.length === 1 && parts[0].length > 0) {
+              return parts[0].substring(0, 1).toUpperCase();
+          }
       }
+      return '?';
+  }
+
+  private renderUserAvatar(userIdOrName: string): string {
+      const user = this.state.allUsers.find(u => u.id === userIdOrName) || (this.state.currentUser?.id === userIdOrName ? this.state.currentUser : null);
       
-      const initials = user.profile.displayName.substring(0, 2).toUpperCase();
-      return `<div class="avatar" style="background-color: ${user.profile.color}; color: #fff;" title="${user.profile.displayName}">${initials}</div>`;
+      if (user) {
+          if (user.profile.avatarUrl) {
+              return `<img src="${user.profile.avatarUrl}" alt="${user.profile.displayName}" class="avatar">`;
+          }
+          const initials = this.getInitials(user.profile.displayName);
+          return `<div class="avatar" style="background-color: ${user.profile.color}; color: #fff;" title="${user.profile.displayName}">${initials}</div>`;
+      } else {
+          const name = userIdOrName;
+          const initials = this.getInitials(name);
+          const color = this.stringToColor(name);
+          return `<div class="avatar" style="background-color: ${color}; color: #fff;" title="${name}">${initials}</div>`;
+      }
   }
   
   // --- AUTH & USER MGMT ---
@@ -1183,8 +1205,13 @@ ${JSON.stringify(projectToUpdate)}
             .join('');
 
         const projectMembers = this.state.timeline?.members.map(m => this.state.allUsers.find(u => u.id === m.userId)).filter(Boolean) as User[];
+        const knownUserIds = new Set(projectMembers.map(u => u.id));
+        const taskAssigneeIds = task.负责人Ids || [];
+        const taskKnownUserIds = taskAssigneeIds.filter(id => knownUserIds.has(id));
+        const taskOtherNames = taskAssigneeIds.filter(id => !knownUserIds.has(id));
+
         const assigneeOptions = projectMembers.map(user => 
-            `<option value="${user.id}" ${task.负责人Ids?.includes(user.id) ? 'selected' : ''}>${user.profile.displayName}</option>`
+            `<option value="${user.id}" ${taskKnownUserIds.includes(user.id) ? 'selected' : ''}>${user.profile.displayName}</option>`
         ).join('');
 
         modalOverlay.innerHTML = `
@@ -1219,8 +1246,12 @@ ${JSON.stringify(projectToUpdate)}
                         </select>
                     </div>
                     <div class="form-group full-width">
-                        <label for="assignee">负责人 (可多选)</label>
+                        <label for="assignee">项目成员 (可多选)</label>
                         <select id="assignee" multiple>${assigneeOptions}</select>
+                    </div>
+                     <div class="form-group full-width">
+                        <label for="otherAssignees">其他负责人 (用逗号分隔)</label>
+                        <input type="text" id="otherAssignees" value="${taskOtherNames.join(', ')}">
                     </div>
                     <div class="form-group">
                         <label for="startTime">开始时间</label>
@@ -1264,9 +1295,12 @@ ${JSON.stringify(projectToUpdate)}
             e.preventDefault();
             const dependenciesSelect = form.querySelector('#dependencies') as HTMLSelectElement;
             const assigneeSelect = form.querySelector('#assignee') as HTMLSelectElement;
+            const otherAssigneesInput = form.querySelector('#otherAssignees') as HTMLInputElement;
 
             const selectedDependencies = Array.from(dependenciesSelect.selectedOptions).map(option => option.value);
             const selectedAssignees = Array.from(assigneeSelect.selectedOptions).map(option => option.value);
+            const otherAssignees = otherAssigneesInput.value.split(',').map(name => name.trim()).filter(Boolean);
+            const allAssignees = [...new Set([...selectedAssignees, ...otherAssignees])];
 
             const updatedTask: 任务 = {
                 ...task,
@@ -1274,7 +1308,7 @@ ${JSON.stringify(projectToUpdate)}
                 详情: (form.querySelector('#details') as HTMLTextAreaElement).value,
                 状态: (form.querySelector('#status') as HTMLSelectElement).value as '待办' | '进行中' | '已完成',
                 优先级: (form.querySelector('#priority') as HTMLSelectElement).value as '高' | '中' | '低',
-                负责人Ids: selectedAssignees,
+                负责人Ids: allAssignees,
                 开始时间: formatFromDateTimeLocalValue((form.querySelector('#startTime') as HTMLInputElement).value),
                 截止日期: formatFromDateTimeLocalValue((form.querySelector('#deadline') as HTMLInputElement).value),
                 备注: (form.querySelector('#notes') as HTMLTextAreaElement).value,
@@ -2559,6 +2593,11 @@ ${JSON.stringify(this.state.timeline)}
     
     // --- GANTT CHART VIEW ---
     private renderGanttChart(): void {
+        const wheelCleanup = this.timelineContainer.onwheel;
+        if (typeof wheelCleanup === 'function') {
+            this.timelineContainer.removeEventListener('wheel', wheelCleanup);
+        }
+
         const handleWheel = (e: WheelEvent) => {
             if (e.ctrlKey) {
                 e.preventDefault();
@@ -2568,7 +2607,8 @@ ${JSON.stringify(this.state.timeline)}
             }
             // If ctrlKey is not pressed, do nothing, allowing default scroll behavior.
         };
-        this.timelineContainer.onwheel = handleWheel;
+        this.timelineContainer.addEventListener('wheel', handleWheel);
+        this.timelineContainer.onwheel = handleWheel as any;
     
         const tasksWithDates = this.getProcessedTasks().filter(t => t.task.开始时间);
         if (tasksWithDates.length === 0) {
