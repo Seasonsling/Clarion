@@ -109,6 +109,8 @@ interface AppState {
     collapsedNodes: Set<string>;
   };
   apiKey: string | null;
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  collapsedItems: Set<string>; // For vertical view
 }
 
 interface Indices {
@@ -150,6 +152,8 @@ class TimelineApp {
         collapsedNodes: new Set<string>(),
     },
     apiKey: null,
+    saveStatus: 'idle',
+    collapsedItems: new Set<string>(),
   };
 
   private ai: GoogleGenAI;
@@ -170,6 +174,7 @@ class TimelineApp {
   private generateBtn: HTMLButtonElement;
   private timelineContainer: HTMLElement;
   private projectNameEl: HTMLElement;
+  private saveStatusEl: HTMLElement;
   private userDisplayEl: HTMLElement;
   private shareBtn: HTMLButtonElement;
   private clearBtn: HTMLButtonElement;
@@ -336,6 +341,7 @@ class TimelineApp {
     this.generateBtn = document.getElementById("generate-btn") as HTMLButtonElement;
     this.timelineContainer = document.getElementById("timeline-container")!;
     this.projectNameEl = document.getElementById("project-name")!;
+    this.saveStatusEl = document.getElementById('save-status-indicator')!;
     this.userDisplayEl = document.getElementById('user-display')!;
     this.shareBtn = document.getElementById('share-btn') as HTMLButtonElement;
     this.clearBtn = document.getElementById("clear-btn") as HTMLButtonElement;
@@ -612,7 +618,7 @@ class TimelineApp {
   }
   
   private handleClearClick(): void {
-    this.setState({ timeline: null, chatHistory: [], isChatOpen: false });
+    this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set() });
   }
 
   private handleExportClick(): void {
@@ -978,12 +984,15 @@ ${projectDescription}
         } else {
              newHistory.push(updatedTimeline);
         }
-        this.setState({ timeline: { ...updatedTimeline }, projectsHistory: newHistory });
+        this.setState({ timeline: { ...updatedTimeline }, projectsHistory: newHistory, saveStatus: 'saving' });
 
         try {
             await this.updateProject(updatedTimeline);
+            this.setState({ saveStatus: 'saved' });
+            setTimeout(() => this.setState({ saveStatus: 'idle'}), 2000);
         } catch (error) {
             console.error("Failed to save project:", error);
+            this.setState({ saveStatus: 'error' });
             alert("项目保存失败，您的更改可能不会被保留。请检查您的网络连接并重试。");
             // Optionally, revert state here by re-fetching from the server
         }
@@ -992,7 +1001,7 @@ ${projectDescription}
   // --- Home Screen Methods ---
     private handleLoadProject(project: 时间轴数据): void {
         if(project) {
-            this.setState({ timeline: project, currentView: 'vertical', chatHistory: [], isChatOpen: false });
+            this.setState({ timeline: project, currentView: 'vertical', chatHistory: [], isChatOpen: false, collapsedItems: new Set() });
         }
     }
 
@@ -1125,9 +1134,9 @@ ${JSON.stringify(projectToUpdate)}
         }
 
         el.className = 'editable';
-        if (tag === 'h2' && field === '项目名称' && indices.phaseIndex === undefined) {
-            el.id = 'project-name';
-        }
+        // FIX: Removed the assignment of el.id to 'project-name' to prevent duplicate IDs in the DOM,
+        // which is invalid HTML and can cause issues with getElementById.
+        // The parent element `this.projectNameEl` already holds this ID.
 
         el.addEventListener('click', () => {
             const input = document.createElement('input');
@@ -1711,6 +1720,25 @@ ${JSON.stringify(this.state.timeline)}
             this.userDisplayEl.innerHTML = '';
         }
     }
+
+    private renderSaveStatusIndicator(): void {
+      switch (this.state.saveStatus) {
+        case 'saving':
+          this.saveStatusEl.innerHTML = `<div class="spinner"></div> 正在同步...`;
+          break;
+        case 'saved':
+          this.saveStatusEl.innerHTML = `✓ 已同步至云端`;
+          break;
+        case 'error':
+          this.saveStatusEl.innerHTML = `✗ 同步失败`;
+          break;
+        case 'idle':
+        default:
+          this.saveStatusEl.innerHTML = '';
+          break;
+      }
+    }
+
   private render(): void {
     this.loadingOverlay.classList.toggle("hidden", !this.state.isLoading);
     this.loadingTextEl.textContent = this.state.loadingText;
@@ -1739,11 +1767,18 @@ ${JSON.stringify(this.state.timeline)}
       const readOnly = userRole === 'Viewer';
       
       let projectNameHTML = this.state.timeline.项目名称;
+      this.projectNameEl.innerHTML = '';
+      // FIX: Changed tag from 'span' to 'h2' to use the semantically correct heading tag for the project title.
+      // This is safe now that the duplicate ID bug in `createEditableElement` is fixed.
+      this.projectNameEl.appendChild(this.createEditableElement('h2', this.state.timeline.项目名称, {}, '项目名称'));
       if (readOnly) {
-        projectNameHTML += ` <span class="readonly-badge">只读模式</span>`;
+        const badge = document.createElement('span');
+        badge.className = 'readonly-badge';
+        badge.textContent = '只读模式';
+        this.projectNameEl.appendChild(badge);
       }
-      this.projectNameEl.innerHTML = projectNameHTML;
       
+      this.renderSaveStatusIndicator();
       this.shareBtn.style.display = userRole === 'Viewer' ? 'none' : 'inline-flex';
       
       this.renderViewSwitcher();
@@ -2047,14 +2082,32 @@ ${JSON.stringify(this.state.timeline)}
   private renderVerticalTimeline(phases: 阶段[]): void {
     const canEdit = this.canEditProject();
     phases.forEach((phase, phaseIndex) => {
+      const phaseId = `phase-${phaseIndex}`;
+      const isCollapsed = this.state.collapsedItems.has(phaseId);
+
       const phaseEl = document.createElement("div");
       phaseEl.className = "phase";
       
       const phaseHeader = document.createElement('div');
       phaseHeader.className = 'phase-header';
       phaseHeader.innerHTML = `<div class="phase-icon">${phaseIndex + 1}</div>`;
+      
       phaseHeader.appendChild(this.createEditableElement('h3', phase.阶段名称, { phaseIndex }, '阶段名称'));
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = `icon-btn toggle-collapse ${isCollapsed ? 'collapsed' : ''}`;
+      toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+      toggleBtn.onclick = () => {
+          const newSet = this.state.collapsedItems;
+          if (newSet.has(phaseId)) newSet.delete(phaseId);
+          else newSet.add(phaseId);
+          this.setState({ collapsedItems: newSet });
+      };
+      phaseHeader.prepend(toggleBtn);
       phaseEl.appendChild(phaseHeader);
+
+      const contentEl = document.createElement('div');
+      contentEl.className = `phase-content ${isCollapsed ? 'collapsed' : ''}`;
 
       if (phase.项目) {
           phase.项目.forEach((project, projectIndex) => {
@@ -2068,14 +2121,27 @@ ${JSON.stringify(this.state.timeline)}
                 projectEl.appendChild(notesEl);
               }
               projectEl.appendChild(this.createTasksList(project.任务, { phaseIndex, projectIndex }, [], canEdit));
-              phaseEl.appendChild(projectEl);
+              contentEl.appendChild(projectEl);
           });
       }
 
       if (phase.任务) {
-          phaseEl.appendChild(this.createTasksList(phase.任务, { phaseIndex }, [], canEdit));
+          contentEl.appendChild(this.createTasksList(phase.任务, { phaseIndex }, [], canEdit));
+      }
+      
+      if (!isCollapsed) {
+          const childCount = (phase.任务?.length || 0) + (phase.项目?.length || 0);
+          if (childCount > 0) {
+              const totalHeight = Array.from(contentEl.children).reduce((acc, el) => acc + (el as HTMLElement).offsetHeight, 0);
+              contentEl.style.maxHeight = `${totalHeight}px`;
+          } else {
+              contentEl.style.maxHeight = '0px';
+          }
+      } else {
+          contentEl.style.maxHeight = '0px';
       }
 
+      phaseEl.appendChild(contentEl);
       this.timelineContainer.appendChild(phaseEl);
     });
   }
