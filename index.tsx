@@ -85,8 +85,6 @@ interface ChatMessage {
 
 interface AppState {
   currentUser: CurrentUser | null;
-  // allUsers is kept for now to support avatar lookups for existing local projects.
-  // This will be replaced when projects are moved to the backend.
   allUsers: User[]; 
   projectsHistory: 时间轴数据[];
   timeline: 时间轴数据 | null;
@@ -207,51 +205,114 @@ class TimelineApp {
 
 
   constructor() {
-    this.loadState();
-    this.ai = new GoogleGenAI({ apiKey: this.state.apiKey || '' });
     this.cacheDOMElements();
     this.addEventListeners();
-    this.handleUrlInvitation(); // Check for invites on load
-    this.render();
+    this.loadStateAndInitialize();
   }
   
-  private handleUrlInvitation() {
+  private async loadStateAndInitialize(): Promise<void> {
+    const savedDataJSON = localStorage.getItem("timelineAppData");
+    let token: string | null = null;
+    let apiKey: string | null = null;
+    
+    if (savedDataJSON) {
+        try {
+            const savedData = JSON.parse(savedDataJSON);
+            token = savedData.authToken || null;
+            apiKey = savedData.apiKey || null;
+        } catch(e) {
+            console.error("Failed to parse saved data, clearing.", e);
+            localStorage.removeItem("timelineAppData");
+        }
+    }
+    
+    this.state.apiKey = apiKey;
+    this.ai = new GoogleGenAI({ apiKey: this.state.apiKey || '' });
+    
+    if (token) {
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            if (payload.exp * 1000 > Date.now()) {
+                const currentUser: CurrentUser = {
+                    id: payload.userId.toString(),
+                    username: payload.username,
+                    profile: payload.profile,
+                    token: token,
+                };
+                // Set current user synchronously to avoid UI flicker
+                this.state.currentUser = currentUser;
+                this.render(); // Render with user logged in
+                await this.initializeApp(currentUser); // Then fetch data
+            } else {
+                 this.setState({ currentUser: null });
+            }
+        } catch (e) {
+            console.error("Invalid token found:", e);
+            this.setState({ currentUser: null });
+        }
+    } else {
+        this.render();
+    }
+  }
+  
+  private async initializeApp(user: CurrentUser): Promise<void> {
+    this.setState({ isLoading: true, loadingText: '正在同步您的云端数据...' });
+    try {
+      const [projects, allUsers] = await Promise.all([
+        this.fetchProjects(user.token),
+        this.fetchAllUsers(user.token),
+      ]);
+      this.setState({ projectsHistory: projects, allUsers: allUsers });
+      this.handleUrlInvitation(); // Check for invites after data is loaded
+    } catch (error) {
+      console.error('Initialization failed:', error);
+      alert('无法从云端同步您的数据，请尝试重新登录。');
+      // Log out the user if the token is invalid or network fails
+      this.setState({ currentUser: null });
+    } finally {
+      this.setState({ isLoading: false });
+    }
+  }
+  
+  private async handleUrlInvitation() {
       const urlParams = new URLSearchParams(window.location.search);
       const projectId = urlParams.get('projectId');
       
       if (projectId && this.state.currentUser) {
-          this.joinProject(projectId, this.state.currentUser.id);
-          // Clean up URL
+          // Clean up URL immediately
           window.history.replaceState({}, document.title, window.location.pathname);
+          await this.joinProject(projectId, this.state.currentUser.id);
       }
   }
   
-  private joinProject(projectId: string, userId: string) {
-      // NOTE: This logic is still client-side. It will be moved to the backend
-      // when project data is migrated.
-      const projectIndex = this.state.projectsHistory.findIndex(p => p.id === projectId);
-      if (projectIndex === -1) {
+  private async joinProject(projectId: string, userId: string) {
+      const project = this.state.projectsHistory.find(p => p.id === projectId);
+      if (!project) {
           alert("邀请链接无效或项目已不存在。");
           return;
       }
       
-      const project = this.state.projectsHistory[projectIndex];
       const isAlreadyMember = project.members.some(m => m.userId === userId);
 
       if (!isAlreadyMember) {
           const newMember: ProjectMember = { userId: userId, role: 'Viewer' }; // Default role
           project.members.push(newMember);
           
-          const newHistory = [...this.state.projectsHistory];
-          newHistory[projectIndex] = project;
-          
-          this.setState({
-              projectsHistory: newHistory,
-              timeline: project, // Automatically load the project
-              currentView: 'vertical'
-          });
-          
-          alert(`成功加入项目 "${project.项目名称}"！您的默认角色是“观察员”。`);
+          this.setState({ isLoading: true, loadingText: "正在加入项目..."});
+          try {
+            await this.saveCurrentProject(project);
+            alert(`成功加入项目 "${project.项目名称}"！您的默认角色是“观察员”。`);
+            this.setState({
+                timeline: project, // Automatically load the project
+                currentView: 'vertical'
+            });
+          } catch(e) {
+             alert("加入项目失败，请稍后重试。");
+             // Revert local change if save fails
+             project.members.pop();
+          } finally {
+            this.setState({ isLoading: false });
+          }
       } else {
           // If already a member, just load the project
           this.setState({ timeline: project, currentView: 'vertical' });
@@ -363,26 +424,53 @@ class TimelineApp {
 
     // API Key Modal Listener
     this.apiKeyForm.addEventListener('submit', this.handleApiKeySubmit.bind(this));
-    
-    // Pseudo real-time sync listener (for projects only now)
-    window.addEventListener('storage', (e) => {
-        if (e.key === 'timelineAppData' && e.newValue) {
-            const oldData = JSON.parse(e.oldValue || '{}');
-            const newData = JSON.parse(e.newValue);
-            
-            // Only reload if project data changed. User auth is handled by token.
-            if(JSON.stringify(oldData.projects) !== JSON.stringify(newData.projects)) {
-                this.loadState();
-                
-                if (this.state.timeline) {
-                    const updatedTimeline = this.state.projectsHistory.find(p => p.id === this.state.timeline?.id);
-                    this.setState({ timeline: updatedTimeline || null }, true);
-                } else {
-                    this.render(); 
-                }
-            }
-        }
+  }
+
+  // --- API HELPERS ---
+  private async fetchWithAuth(url: string, options: RequestInit = {}): Promise<any> {
+    if (!this.state.currentUser?.token) {
+        throw new Error("Authentication token not found.");
+    }
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.state.currentUser.token}`,
+        ...options.headers,
+    };
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: response.statusText }));
+        throw new Error(errorData.message || `API Error: ${response.status}`);
+    }
+    if (response.status === 204) { // Handle No Content response
+        return null;
+    }
+    return response.json();
+  }
+
+  private fetchProjects(token: string): Promise<时间轴数据[]> {
+    return this.fetchWithAuth('/api/projects');
+  }
+
+  private fetchAllUsers(token: string): Promise<User[]> {
+     return this.fetchWithAuth('/api/users');
+  }
+
+  private createProject(projectData: 时间轴数据): Promise<时间轴数据> {
+    return this.fetchWithAuth('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify(projectData),
     });
+  }
+
+  private updateProject(projectData: 时间轴数据): Promise<时间轴数据> {
+    return this.fetchWithAuth(`/api/projects/${projectData.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(projectData),
+    });
+  }
+  
+  private deleteProject(projectId: string): Promise<null> {
+     return this.fetchWithAuth(`/api/projects/${projectId}`, { method: 'DELETE' });
   }
 
   // --- UTILITIES ---
@@ -437,17 +525,16 @@ class TimelineApp {
         const data = await response.json();
         if (response.ok) {
             const { token } = data;
-            // Decode token to get user info without a library for simplicity
             const payload = JSON.parse(atob(token.split('.')[1]));
             const currentUser: CurrentUser = {
-                id: payload.userId.toString(), // Ensure ID is a string
+                id: payload.userId.toString(),
                 username: payload.username,
                 profile: payload.profile,
                 token: token,
             };
-            this.setState({ currentUser: currentUser });
-            this.handleUrlInvitation(); // Check for invites after login
-            if (!this.state.apiKey) {
+            this.setState({ currentUser: currentUser }); // This triggers saveState
+            await this.initializeApp(currentUser);
+             if (!this.state.apiKey) {
                 this.showApiKeyModal(true);
             }
         } else {
@@ -508,72 +595,20 @@ class TimelineApp {
     }
     
     // Handle saving state to localStorage
-    if (newState.currentUser !== undefined) {
-      if (newState.currentUser) {
-        // Just logged in
+    if (newState.currentUser !== undefined || newState.apiKey !== undefined) {
+      if ((newState.currentUser && !oldUser) || (!newState.currentUser && oldUser) || (newState.apiKey !== this.state.apiKey)) {
         this.saveState();
-      } else if (oldUser && !newState.currentUser) {
-        // Just logged out
-        localStorage.removeItem('timelineAppData');
       }
-    } else if (newState.projectsHistory !== undefined || newState.apiKey !== undefined || newState.allUsers !== undefined) {
-      this.saveState();
     }
   }
 
   private saveState(): void {
-    // Now only saves token, API key, and client-side project data.
+    // Now only saves token and API key. Project data is saved to the backend.
     const appData = {
         authToken: this.state.currentUser?.token,
         apiKey: this.state.apiKey,
-        projects: this.state.projectsHistory,
-        // Kept for backward compatibility for avatar lookups. To be removed.
-        users: this.state.allUsers,
     };
     localStorage.setItem("timelineAppData", JSON.stringify(appData));
-  }
-
-  private loadState(): void {
-    const savedDataJSON = localStorage.getItem("timelineAppData");
-    if (savedDataJSON) {
-        try {
-            const savedData = JSON.parse(savedDataJSON);
-            const token = savedData.authToken;
-            let currentUser: CurrentUser | null = null;
-            
-            if (token) {
-                 // Decode token to get user info without a library for simplicity
-                const payload = JSON.parse(atob(token.split('.')[1]));
-                // Check if token is expired
-                if (payload.exp * 1000 > Date.now()) {
-                    currentUser = {
-                        id: payload.userId.toString(),
-                        username: payload.username,
-                        profile: payload.profile,
-                        token: token,
-                    };
-                }
-            }
-            
-            // `allUsers` and `projectsHistory` are still loaded from local storage
-            // until they are migrated to the backend.
-            const allUsers = Array.isArray(savedData.users) ? savedData.users : [];
-            const projectsHistory = Array.isArray(savedData.projects) ? savedData.projects : [];
-            const apiKey = savedData.apiKey || null;
-            
-            this.state = {
-                ...this.state,
-                currentUser,
-                apiKey,
-                allUsers,
-                projectsHistory,
-            };
-        } catch(e) {
-            console.error("Failed to load state, starting fresh.", e);
-            localStorage.removeItem("timelineAppData");
-            this.state = { ...this.state, currentUser: null, projectsHistory: [], allUsers: [], apiKey: null };
-        }
-    }
   }
   
   private handleClearClick(): void {
@@ -599,31 +634,29 @@ class TimelineApp {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
         try {
             const result = e.target?.result as string;
             const data = JSON.parse(result);
             if (data.项目名称 && Array.isArray(data.阶段)) {
-                // Assign ownership to current user upon import
                 data.id = `proj-${Date.now()}`;
                 data.ownerId = this.state.currentUser!.id;
                 data.members = [{ userId: this.state.currentUser!.id, role: 'Admin' }];
                 const newProject = this.postProcessTimelineData(data);
-                
-                // Add current user to `allUsers` if not present, for avatar lookup.
-                const userExists = this.state.allUsers.some(u => u.id === this.state.currentUser!.id);
-                const newAllUsers = !userExists
-                    ? [...this.state.allUsers, {id: this.state.currentUser!.id, username: this.state.currentUser!.username, profile: this.state.currentUser!.profile}]
-                    : this.state.allUsers;
 
-                const newHistory = [...this.state.projectsHistory, newProject];
-                this.setState({ timeline: newProject, projectsHistory: newHistory, allUsers: newAllUsers });
+                this.setState({ isLoading: true, loadingText: "正在上传项目..." });
+                const savedProject = await this.createProject(newProject);
+                const newHistory = [...this.state.projectsHistory, savedProject];
+                this.setState({ timeline: savedProject, projectsHistory: newHistory });
+
             } else {
                 alert("导入失败。文件格式无效或不兼容。");
             }
         } catch (error) {
-            alert("文件读取错误，请检查文件是否损坏。");
+            alert("文件读取或上传错误，请检查文件是否损坏或网络连接。");
             console.error("导入错误：", error);
+        } finally {
+            this.setState({ isLoading: false });
         }
     };
     reader.readAsText(file);
@@ -720,18 +753,16 @@ ${projectDescription}
         ownerId: this.state.currentUser.id,
         members: [{ userId: this.state.currentUser.id, role: 'Admin' }],
       };
-      
-      const userExists = this.state.allUsers.some(u => u.id === this.state.currentUser!.id);
-      const newAllUsers = !userExists
-          ? [...this.state.allUsers, {id: this.state.currentUser!.id, username: this.state.currentUser!.username, profile: this.state.currentUser!.profile}]
-          : this.state.allUsers;
 
       const processedData = this.postProcessTimelineData(timelineData);
-      const newHistory = [...this.state.projectsHistory, processedData];
-      this.setState({ timeline: processedData, projectsHistory: newHistory, allUsers: newAllUsers, currentView: 'vertical', chatHistory: [], isChatOpen: false });
+      
+      this.setState({ isLoading: true, loadingText: '正在保存新项目...'});
+      const savedProject = await this.createProject(processedData);
+      const newHistory = [...this.state.projectsHistory, savedProject];
+      this.setState({ timeline: savedProject, projectsHistory: newHistory, currentView: 'vertical', chatHistory: [], isChatOpen: false });
     } catch (error) {
-      console.error("生成计划时出错：", error);
-      alert("计划生成失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
+      console.error("生成或保存计划时出错：", error);
+      alert("计划生成或保存失败，请稍后重试。");
     } finally {
       this.setState({ isLoading: false });
     }
@@ -824,7 +855,7 @@ ${projectDescription}
         return { parent: taskList, task, taskIndex: taskPath[taskPath.length-1] };
     }
 
-    private handleToggleComplete(indices: Indices, isChecked: boolean): void {
+    private async handleToggleComplete(indices: Indices, isChecked: boolean): Promise<void> {
         const result = this.getTaskFromPath(indices);
         if (result && this.state.timeline) {
             const completeTaskRecursively = (task: 任务) => {
@@ -842,20 +873,20 @@ ${projectDescription}
                 result.task.状态 = '进行中';
             }
             
-            this.updateActiveProjectInHistory(this.state.timeline);
+            await this.saveCurrentProject(this.state.timeline);
         }
     }
 
-    private handleUpdateTask(indices: Indices, updatedTask: 任务): void {
+    private async handleUpdateTask(indices: Indices, updatedTask: 任务): Promise<void> {
         const result = this.getTaskFromPath(indices);
         if(result && this.state.timeline) {
             const currentTask = result.parent[result.taskIndex];
             result.parent[result.taskIndex] = { ...currentTask, ...updatedTask };
-            this.updateActiveProjectInHistory(this.state.timeline);
+            await this.saveCurrentProject(this.state.timeline);
         }
     }
 
-    private handleAddTask(indices: TopLevelIndices, parentTaskPath?: number[]): void {
+    private async handleAddTask(indices: TopLevelIndices, parentTaskPath?: number[]): Promise<void> {
         if (!this.state.timeline) return;
         const { phaseIndex, projectIndex } = indices;
         if(phaseIndex === undefined) return;
@@ -876,19 +907,19 @@ ${projectDescription}
              taskListOwner.任务.push(newTask);
         }
         
-        this.updateActiveProjectInHistory(this.state.timeline);
+        await this.saveCurrentProject(this.state.timeline);
     }
 
-    private handleDeleteTask(indices: Indices): void {
+    private async handleDeleteTask(indices: Indices): Promise<void> {
         if (!confirm("确定要从此计划中移除此任务吗？")) return;
         const result = this.getTaskFromPath(indices);
         if(result && this.state.timeline) {
             result.parent.splice(result.taskIndex, 1);
-            this.updateActiveProjectInHistory(this.state.timeline);
+            await this.saveCurrentProject(this.state.timeline);
         }
     }
     
-    private handleAddComment(indices: Indices, content: string): void {
+    private async handleAddComment(indices: Indices, content: string): Promise<void> {
         if (!content.trim() || !this.state.currentUser) return;
         const result = this.getTaskFromPath(indices);
         if (result && this.state.timeline) {
@@ -902,11 +933,11 @@ ${projectDescription}
                 时间戳: new Date().toISOString(),
             };
             task.讨论.push(newComment);
-            this.updateActiveProjectInHistory(this.state.timeline);
+            await this.saveCurrentProject(this.state.timeline);
         }
     }
 
-    private handleMoveTask(draggedIndices: Indices, dropIndices: Indices, position: 'before' | 'after'): void {
+    private async handleMoveTask(draggedIndices: Indices, dropIndices: Indices, position: 'before' | 'after'): Promise<void> {
         if (!this.state.timeline) return;
 
         if (JSON.stringify(draggedIndices) === JSON.stringify(dropIndices)) return;
@@ -935,19 +966,27 @@ ${projectDescription}
         const insertIndex = position === 'before' ? dropIndex : dropIndex + 1;
         dropParent.splice(insertIndex, 0, movedTask);
 
-        this.updateActiveProjectInHistory(this.state.timeline);
+        await this.saveCurrentProject(this.state.timeline);
     }
 
-    private updateActiveProjectInHistory(updatedTimeline: 时间轴数据) {
+    private async saveCurrentProject(updatedTimeline: 时间轴数据) {
+        // Optimistic UI update
         const projectIndex = this.state.projectsHistory.findIndex(p => p.id === updatedTimeline.id);
-        
         const newHistory = [...this.state.projectsHistory];
         if (projectIndex !== -1) {
             newHistory[projectIndex] = updatedTimeline;
         } else {
              newHistory.push(updatedTimeline);
         }
-        this.setState({ timeline: updatedTimeline, projectsHistory: newHistory });
+        this.setState({ timeline: { ...updatedTimeline }, projectsHistory: newHistory });
+
+        try {
+            await this.updateProject(updatedTimeline);
+        } catch (error) {
+            console.error("Failed to save project:", error);
+            alert("项目保存失败，您的更改可能不会被保留。请检查您的网络连接并重试。");
+            // Optionally, revert state here by re-fetching from the server
+        }
     }
 
   // --- Home Screen Methods ---
@@ -957,7 +996,7 @@ ${projectDescription}
         }
     }
 
-    private handleDeleteProject(projectToDelete: 时间轴数据): void {
+    private async handleDeleteProject(projectToDelete: 时间轴数据): Promise<void> {
         if (!this.state.currentUser || projectToDelete.ownerId !== this.state.currentUser.id) {
             alert("只有项目所有者才能删除项目。");
             return;
@@ -965,8 +1004,16 @@ ${projectDescription}
 
         if (!confirm(`确定要永久废止此征程 “${projectToDelete.项目名称}” 吗？此操作不可撤销。`)) return;
         
-        const newHistory = this.state.projectsHistory.filter(p => p.id !== projectToDelete.id);
-        this.setState({ projectsHistory: newHistory, timeline: null });
+        this.setState({ isLoading: true, loadingText: "正在删除项目..."});
+        try {
+            await this.deleteProject(projectToDelete.id);
+            const newHistory = this.state.projectsHistory.filter(p => p.id !== projectToDelete.id);
+            this.setState({ projectsHistory: newHistory, timeline: null });
+        } catch(e) {
+            alert("删除项目失败，请稍后重试。");
+        } finally {
+            this.setState({ isLoading: false });
+        }
     }
 
     private async handleQuickAddTask(event: Event): Promise<void> {
@@ -1035,13 +1082,8 @@ ${JSON.stringify(projectToUpdate)}
             const parsedData = JSON.parse(response.text);
             const updatedTimeline = this.postProcessTimelineData({ ...projectToUpdate, ...parsedData });
 
-            const newHistory = [...this.state.projectsHistory];
-            newHistory[globalProjectIndex] = updatedTimeline;
+            await this.saveCurrentProject(updatedTimeline);
 
-            this.setState({
-                timeline: this.state.timeline?.id === updatedTimeline.id ? updatedTimeline : this.state.timeline,
-                projectsHistory: newHistory,
-            });
             taskInput.value = '';
             assigneeInput.value = '';
             deadlineInput.value = '';
@@ -1054,7 +1096,7 @@ ${JSON.stringify(projectToUpdate)}
         }
     }
   
-    private handleUpdateField(indices: TopLevelIndices, field: string, value: string): void {
+    private async handleUpdateField(indices: TopLevelIndices, field: string, value: string): Promise<void> {
         if (!this.state.timeline) return;
         const { phaseIndex, projectIndex } = indices;
 
@@ -1068,7 +1110,7 @@ ${JSON.stringify(projectToUpdate)}
                 phase.阶段名称 = value;
             }
         }
-        this.updateActiveProjectInHistory(this.state.timeline);
+        await this.saveCurrentProject(this.state.timeline);
     }
   
     private createEditableElement(
@@ -1343,7 +1385,7 @@ ${JSON.stringify(projectToUpdate)}
                     const userId = (e.currentTarget as HTMLElement).dataset.userId;
                     if (userId && this.state.timeline) {
                         this.state.timeline.members = this.state.timeline.members.filter(m => m.userId !== userId);
-                        this.updateActiveProjectInHistory(this.state.timeline);
+                        this.saveCurrentProject(this.state.timeline);
                         close();
                         this.showMembersModal();
                     }
@@ -1359,7 +1401,7 @@ ${JSON.stringify(projectToUpdate)}
                         const member = this.state.timeline.members.find(m => m.userId === userId);
                         if (member) {
                             member.role = newRole;
-                            this.updateActiveProjectInHistory(this.state.timeline);
+                            this.saveCurrentProject(this.state.timeline);
                         }
                     }
                 });
@@ -1373,7 +1415,7 @@ ${JSON.stringify(projectToUpdate)}
                     const role = (modalOverlay.querySelector('#add-user-role') as HTMLSelectElement).value as ProjectMemberRole;
                     if (userId && role && this.state.timeline) {
                          this.state.timeline.members.push({ userId, role });
-                        this.updateActiveProjectInHistory(this.state.timeline);
+                        this.saveCurrentProject(this.state.timeline);
                         close();
                         this.showMembersModal();
                     }
@@ -1613,7 +1655,7 @@ ${JSON.stringify(this.state.timeline)}
 
                 const finalHistory: ChatMessage[] = [...this.state.chatHistory, { role: 'model', text: result.responseText }];
                 
-                this.updateActiveProjectInHistory(updatedTimeline);
+                await this.saveCurrentProject(updatedTimeline);
                 this.setState({ chatHistory: finalHistory });
             }
 

@@ -25,8 +25,7 @@ export default async function handler(
   }
 
   try {
-    // This is an idempotent action. It creates the table only if it doesn't exist.
-    // In a larger application, this would be part of a separate migration script.
+    // Schema setup - This is idempotent and ensures all tables exist.
     await sql`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -36,6 +35,23 @@ export default async function handler(
         color VARCHAR(7) NOT NULL,
         avatar_url TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS projects (
+        id VARCHAR(255) PRIMARY KEY,
+        owner_id INTEGER NOT NULL REFERENCES users(id),
+        project_data JSONB NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+     await sql`
+      CREATE TABLE IF NOT EXISTS project_members (
+        project_id VARCHAR(255) NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role VARCHAR(50) NOT NULL,
+        PRIMARY KEY (project_id, user_id)
       );
     `;
 
