@@ -562,9 +562,6 @@ class TimelineApp {
             };
             this.setState({ currentUser: currentUser }); // This triggers saveState
             await this.initializeApp(currentUser);
-             if (!this.state.apiKey) {
-                this.showApiKeyModal(true);
-            }
         } else {
             this.loginErrorEl.textContent = data.message || "用户名或密码无效。";
         }
@@ -2593,22 +2590,17 @@ ${JSON.stringify(this.state.timeline)}
     
     // --- GANTT CHART VIEW ---
     private renderGanttChart(): void {
-        const wheelCleanup = this.timelineContainer.onwheel;
-        if (typeof wheelCleanup === 'function') {
-            this.timelineContainer.removeEventListener('wheel', wheelCleanup);
-        }
-
-        const handleWheel = (e: WheelEvent) => {
+        // The main `render` function clears `onwheel` before this is called.
+        // We only need to assign our specific handler for this view.
+        this.timelineContainer.onwheel = (e: WheelEvent) => {
             if (e.ctrlKey) {
                 e.preventDefault();
                 const zoomAmount = e.deltaY > 0 ? -10 : 10;
                 const newZoom = this.state.ganttZoomLevel + zoomAmount;
                 this.setState({ ganttZoomLevel: Math.max(10, Math.min(200, newZoom)) });
             }
-            // If ctrlKey is not pressed, do nothing, allowing default scroll behavior.
+            // If ctrlKey is not pressed, default browser scrolling will occur.
         };
-        this.timelineContainer.addEventListener('wheel', handleWheel);
-        this.timelineContainer.onwheel = handleWheel as any;
     
         const tasksWithDates = this.getProcessedTasks().filter(t => t.task.开始时间);
         if (tasksWithDates.length === 0) {
@@ -2739,7 +2731,7 @@ ${JSON.stringify(this.state.timeline)}
                     duration = Math.ceil((endOrDefault.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 7)) || 1;
                 } else { // months
                     startUnit = (start.getFullYear() - minDate.getFullYear()) * 12 + (start.getMonth() - minDate.getMonth());
-                    duration = Math.ceil(((endOrDefault.getFullYear() - start.getFullYear()) * 12 + (endOrDefault.getMonth() - start.getMonth())) - 
+                    duration = Math.ceil(((endOrDefault.getFullYear() - start.getFullYear()) * 12 + (endOrDefault.getMonth() - minDate.getMonth())) - 
                                          ((start.getFullYear() - minDate.getFullYear()) * 12 + (start.getMonth() - minDate.getMonth()))) || 1;
                 }
 
