@@ -166,42 +166,95 @@ ${JSON.stringify(timeline)}
 
     return { text: response.text, sources };
   }
+  
+  private createModificationResponseSchema() {
+      const pathSchema = {
+          type: Type.OBJECT,
+          properties: {
+              phaseIndex: { type: Type.INTEGER, description: "0-based index of the phase in the `阶段` array." },
+              projectIndex: { type: Type.INTEGER, description: "Optional 0-based index for nested projects within a phase's `项目` array." },
+              taskPath: { type: Type.ARRAY, items: { type: Type.INTEGER }, description: "0-based path of indices to the target task. For 'add', this path points to the parent task/project/phase." }
+          },
+          required: ["phaseIndex", "taskPath"]
+      };
+
+      const taskSchemaForChanges = this.createTimelineSchema().properties.阶段.items.properties.任务.items;
+
+      const changeOperationSchema = {
+          type: Type.OBJECT,
+          properties: {
+              op: { type: Type.STRING, enum: ["update", "add", "delete"], description: "The operation type." },
+              path: pathSchema,
+              value: {
+                  type: Type.OBJECT,
+                  description: "For 'update', a partial task object with fields to change. For 'add', a full new task object. Not used for 'delete'.",
+                  properties: taskSchemaForChanges.properties // Re-use the properties from the main task schema
+              }
+          },
+          required: ["op", "path"]
+      };
+
+      return {
+          type: Type.OBJECT,
+          properties: {
+              responseText: { type: Type.STRING, description: "用中文对用户的请求进行友好、确认性的回应。如果无法执行操作，请解释原因。" },
+              changes: { type: Type.ARRAY, items: changeOperationSchema, description: "An array of change operations to apply to the timeline." }
+          },
+          required: ["responseText", "changes"],
+      };
+  }
+
+  async processChatWithAttachment(
+    timeline: 时间轴数据,
+    userInput: string,
+    attachment: { name: string; type: string; data: string; }
+  ): Promise<{ responseText: string, changes: ChangeOperation[] }> {
+    const responseSchema = this.createModificationResponseSchema();
+    const currentDateContext = this.getCurrentDateContext();
+    const base64Data = attachment.data.split(',')[1];
+    
+    const prompt = `${currentDateContext} 作为一名高级项目管理AI助手，请根据用户的文字请求和提供的附件（图片或文件），智能地修改项目计划JSON。
+您的任务是 **生成一个操作指令列表** 来修改项目计划。
+
+**用户请求**:
+"${userInput}"
+
+**附件分析**:
+分析附件内容（例如，图片中的文字、图表）。从附件中提取可操作的信息，如新任务、截止日期、负责人等，并将其整合到项目计划中。例如，如果图片是一张白板照片，请将白板上的任务列表添加进来。
+
+**输出格式**:
+您必须返回一个JSON对象，包含两部分:
+1.  \`responseText\`: 一个对用户操作的友好中文确认信息。
+2.  \`changes\`: 一个操作指令数组，用于修改项目计划。
+
+**重要规则**:
+- **路径准确性**: 'path' 中的索引必须准确无误。
+- **时间解析**: 当用户提到相对时间（如“推迟2天”、“明天中午12点”），你必须根据当前时间上下文计算出精确的“YYYY-MM-DD HH:mm”格式的时间。
+- **状态同步**: 当更新 \`状态\` 为 '已完成' 时，请同时在 \`value\` 中设置 \`"已完成": true\`。
+- **查询处理**: 如果用户只是提问，请在 \`responseText\` 中回答问题，并返回一个空的 \`changes\` 数组 \`[]\`。
+
+---
+当前项目计划:
+${JSON.stringify(timeline)}
+---`;
+
+    const response = await this.ai.models.generateContent({
+        model: "gemini-2.5-flash", // Use flash for multimodal
+        contents: {
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: attachment.type, data: base64Data } }
+          ]
+        },
+        config: { responseMimeType: "application/json", responseSchema: responseSchema },
+    });
+    
+    const result = JSON.parse(response.text);
+    return result;
+  }
 
   async processChatWithModification(timeline: 时间轴数据, userInput: string): Promise<{ responseText: string, changes: ChangeOperation[] }> {
-    const pathSchema = {
-        type: Type.OBJECT,
-        properties: {
-            phaseIndex: { type: Type.INTEGER, description: "0-based index of the phase in the `阶段` array." },
-            projectIndex: { type: Type.INTEGER, description: "Optional 0-based index for nested projects within a phase's `项目` array." },
-            taskPath: { type: Type.ARRAY, items: { type: Type.INTEGER }, description: "0-based path of indices to the target task. For 'add', this path points to the parent task/project/phase." }
-        },
-        required: ["phaseIndex", "taskPath"]
-    };
-
-    const taskSchemaForChanges = this.createTimelineSchema().properties.阶段.items.properties.任务.items;
-
-    const changeOperationSchema = {
-        type: Type.OBJECT,
-        properties: {
-            op: { type: Type.STRING, enum: ["update", "add", "delete"], description: "The operation type." },
-            path: pathSchema,
-            value: { 
-                type: Type.OBJECT, 
-                description: "For 'update', a partial task object with fields to change. For 'add', a full new task object. Not used for 'delete'.",
-                properties: taskSchemaForChanges.properties // Re-use the properties from the main task schema
-            }
-        },
-        required: ["op", "path"]
-    };
-
-    const responseSchema = {
-        type: Type.OBJECT,
-        properties: {
-            responseText: { type: Type.STRING, description: "用中文对用户的请求进行友好、确认性的回应。如果无法执行操作，请解释原因。" },
-            changes: { type: Type.ARRAY, items: changeOperationSchema, description: "An array of change operations to apply to the timeline." }
-        },
-        required: ["responseText", "changes"],
-    };
+    const responseSchema = this.createModificationResponseSchema();
     const currentDateContext = this.getCurrentDateContext();
 
     const response = await this.ai.models.generateContent({

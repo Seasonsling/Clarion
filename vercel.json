@@ -1,1 +1,22 @@
-{}
+{
+  "functions": {
+    "api/auth/login.ts": {
+      "runtime": "nodejs20.x"
+    },
+    "api/auth/register.ts": {
+      "runtime": "nodejs20.x"
+    },
+    "api/projects/index.ts": {
+      "runtime": "nodejs20.x"
+    },
+    "api/projects/[id].ts": {
+      "runtime": "nodejs20.x"
+    },
+    "api/users/index.ts": {
+      "runtime": "nodejs20.x"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" }
+  ]
+}

@@ -32,6 +32,9 @@ export class TimelineApp {
     apiKey: null,
     saveStatus: 'idle',
     collapsedItems: new Set<string>(),
+    chatAttachment: null,
+    lastTimelineState: null,
+    lastModificationId: null,
   };
 
   private ai: GeminiService;
@@ -81,6 +84,9 @@ export class TimelineApp {
   public chatFormEl: HTMLFormElement;
   public chatInputEl: HTMLTextAreaElement;
   public chatSendBtn: HTMLButtonElement;
+  public chatAttachBtn: HTMLButtonElement;
+  public chatFileInput: HTMLInputElement;
+  public chatAttachmentPreviewEl: HTMLElement;
   // API Key Modal Elements
   public apiKeyModalOverlay: HTMLElement;
   public apiKeyForm: HTMLFormElement;
@@ -250,6 +256,9 @@ export class TimelineApp {
     this.chatFormEl = document.getElementById('chat-form') as HTMLFormElement;
     this.chatInputEl = document.getElementById('chat-input') as HTMLTextAreaElement;
     this.chatSendBtn = document.getElementById('chat-send-btn') as HTMLButtonElement;
+    this.chatAttachBtn = document.getElementById('chat-attach-btn') as HTMLButtonElement;
+    this.chatFileInput = document.getElementById('chat-file-input') as HTMLInputElement;
+    this.chatAttachmentPreviewEl = document.getElementById('chat-attachment-preview')!;
     // API Key Modal
     this.apiKeyModalOverlay = document.getElementById('api-key-modal-overlay')!;
     this.apiKeyForm = document.getElementById('api-key-form') as HTMLFormElement;
@@ -308,6 +317,8 @@ export class TimelineApp {
             this.chatFormEl.requestSubmit();
         }
     });
+    this.chatAttachBtn.addEventListener('click', () => this.chatFileInput.click());
+    this.chatFileInput.addEventListener('change', this.handleFileSelect.bind(this));
 
     // API Key Modal Listener
     this.apiKeyForm.addEventListener('submit', this.handleApiKeySubmit.bind(this));
@@ -855,10 +866,13 @@ export class TimelineApp {
     private async handleChatSubmit(e: Event): Promise<void> {
         e.preventDefault();
         const userInput = this.chatInputEl.value.trim();
-        if (!userInput) return;
+        const attachment = this.state.chatAttachment;
+        if (!userInput && !attachment) return;
+
         this.chatInputEl.value = '';
         this.autoResizeChatInput();
-        await this.submitChat(userInput);
+        this.setState({ chatAttachment: null });
+        await this.submitChat(userInput, attachment);
     }
     
     public async handleRegenerateClick(): Promise<void> {
@@ -868,11 +882,19 @@ export class TimelineApp {
             const historyWithoutLastResponse = this.state.chatHistory.slice(0, -1);
             this.setState({ chatHistory: historyWithoutLastResponse }, false);
         }
-        await this.submitChat(this.state.lastUserChatPrompt);
+        // Note: Regeneration doesn't re-use the attachment.
+        await this.submitChat(this.state.lastUserChatPrompt, null);
     }
 
     private applyChanges(changes: ChangeOperation[]): void {
         if (!this.state.timeline) return;
+        
+        // Before applying, store the current state for undo
+        const modificationId = `mod-${Date.now()}`;
+        this.setState({
+            lastTimelineState: JSON.parse(JSON.stringify(this.state.timeline)),
+            lastModificationId: modificationId
+        }, false);
 
         const updatesAndAdds = changes.filter(c => c.op !== 'delete');
         const deletes = changes.filter(c => c.op === 'delete');
@@ -933,47 +955,64 @@ export class TimelineApp {
         }
     }
 
-    private async submitChat(userInput: string): Promise<void> {
+    private async submitChat(userInput: string, attachment: { file: File, data: string } | null): Promise<void> {
         if (!this.state.apiKey) {
             this.renderer.showApiKeyModal(true);
             alert("请先提供您的 API 密钥。");
             return;
         }
         if (this.state.isChatLoading) return;
+        
+        const attachmentData = attachment ? { name: attachment.file.name, type: attachment.file.type, data: attachment.data } : undefined;
 
         this.setState({
             isChatLoading: true,
             lastUserChatPrompt: userInput,
-            chatHistory: [...this.state.chatHistory, { role: 'user', text: userInput }],
+            chatHistory: [...this.state.chatHistory, { role: 'user', text: userInput, attachment: attachmentData }],
         });
 
         try {
-            const isQuestion = /^(谁|什么|哪里|何时|为何|如何|是|做|能)\b/i.test(userInput) || userInput.endsWith('？') || userInput.endsWith('?');
-
-            if (isQuestion) {
-                const { text, sources } = await this.ai.processChatWithSearch(this.state.timeline, userInput);
-                this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text, sources }] });
-            } else {
-                if (!this.canEditProject()) {
+            if (attachment) {
+                 if (!this.canEditProject()) {
                     this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text: "抱歉，您没有修改此项目的权限。" }] });
                     return;
                 }
                 if (!this.state.timeline) return;
-                
-                const { responseText, changes } = await this.ai.processChatWithModification(this.state.timeline, userInput);
-                
+
+                const { responseText, changes } = await this.ai.processChatWithAttachment(this.state.timeline, userInput, attachmentData!);
                 if (changes && changes.length > 0) {
                     this.applyChanges(changes);
                     await this.saveCurrentProject(this.state.timeline);
                 }
-                
-                this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text: responseText }] });
+                this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text: responseText, modificationId: this.state.lastModificationId || undefined }] });
+
+            } else {
+                const isQuestion = /^(谁|什么|哪里|何时|为何|如何|是|做|能)\b/i.test(userInput) || userInput.endsWith('？') || userInput.endsWith('?');
+                if (isQuestion) {
+                    const { text, sources } = await this.ai.processChatWithSearch(this.state.timeline, userInput);
+                    this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text, sources }] });
+                } else {
+                    if (!this.canEditProject()) {
+                        this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text: "抱歉，您没有修改此项目的权限。" }] });
+                        return;
+                    }
+                    if (!this.state.timeline) return;
+                    
+                    const { responseText, changes } = await this.ai.processChatWithModification(this.state.timeline, userInput);
+                    
+                    if (changes && changes.length > 0) {
+                        this.applyChanges(changes);
+                        await this.saveCurrentProject(this.state.timeline);
+                    }
+                    
+                    this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text: responseText, modificationId: this.state.lastModificationId || undefined }] });
+                }
             }
         } catch (error) {
             console.error("智能助理出错:", error);
             this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text: "抱歉，理解您的指令时遇到了些问题，请您换一种方式描述，或者稍后再试。这可能是由于 API 密钥无效或网络问题导致。" }] });
         } finally {
-            this.setState({ isChatLoading: false });
+            this.setState({ isChatLoading: false, lastModificationId: this.state.lastModificationId || null });
         }
     }
 
@@ -1094,5 +1133,31 @@ export class TimelineApp {
 
     public render(): void {
         this.renderer.render();
+    }
+    
+    private handleFileSelect(event: Event): void {
+        const file = (event.target as HTMLInputElement).files?.[0];
+        if (!file) {
+            this.setState({ chatAttachment: null });
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const dataUrl = e.target?.result as string;
+            this.setState({ chatAttachment: { file, data: dataUrl } });
+        };
+        reader.readAsDataURL(file);
+    }
+    
+    public async handleUndoLastAction(): Promise<void> {
+        if (this.state.lastTimelineState) {
+            this.setState({
+                timeline: this.state.lastTimelineState,
+                lastTimelineState: null,
+                lastModificationId: null
+            });
+            await this.saveCurrentProject(this.state.timeline!);
+        }
     }
 }

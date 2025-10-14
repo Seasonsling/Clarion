@@ -85,6 +85,12 @@ export interface ChatMessage {
     role: ChatRole;
     text: string;
     sources?: { uri: string; title: string }[];
+    attachment?: {
+      name: string;
+      type: string;
+      data: string; // base64 data url
+    };
+    modificationId?: string;
 }
 
 export interface PathIndices {
@@ -127,6 +133,9 @@ export interface AppState {
   apiKey: string | null;
   saveStatus: 'idle' | 'saving' | 'saved' | 'error';
   collapsedItems: Set<string>; // For vertical view
+  chatAttachment: { file: File, data: string } | null;
+  lastTimelineState: 时间轴数据 | null;
+  lastModificationId: string | null;
 }
 
 export interface Indices {
