@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import type { 时间轴数据 } from "./types";
+import type { ChangeOperation, 时间轴数据 } from "./types";
 
 export class GeminiService {
   ai: GoogleGenAI;
@@ -167,30 +167,80 @@ ${JSON.stringify(timeline)}
     return { text: response.text, sources };
   }
 
-  async processChatWithModification(timeline: 时间轴数据, userInput: string): Promise<{ responseText: string, updatedTimeline: 时间轴数据 }> {
-    const timelineSchema = this.createTimelineSchema();
+  async processChatWithModification(timeline: 时间轴数据, userInput: string): Promise<{ responseText: string, changes: ChangeOperation[] }> {
+    const pathSchema = {
+        type: Type.OBJECT,
+        properties: {
+            phaseIndex: { type: Type.INTEGER, description: "0-based index of the phase in the `阶段` array." },
+            projectIndex: { type: Type.INTEGER, description: "Optional 0-based index for nested projects within a phase's `项目` array." },
+            taskPath: { type: Type.ARRAY, items: { type: Type.INTEGER }, description: "0-based path of indices to the target task. For 'add', this path points to the parent task/project/phase." }
+        },
+        required: ["phaseIndex", "taskPath"]
+    };
+
+    const taskSchemaForChanges = this.createTimelineSchema().properties.阶段.items.properties.任务.items;
+
+    const changeOperationSchema = {
+        type: Type.OBJECT,
+        properties: {
+            op: { type: Type.STRING, enum: ["update", "add", "delete"], description: "The operation type." },
+            path: pathSchema,
+            value: { 
+                type: Type.OBJECT, 
+                description: "For 'update', a partial task object with fields to change. For 'add', a full new task object. Not used for 'delete'.",
+                properties: taskSchemaForChanges.properties // Re-use the properties from the main task schema
+            }
+        },
+        required: ["op", "path"]
+    };
+
     const responseSchema = {
         type: Type.OBJECT,
         properties: {
             responseText: { type: Type.STRING, description: "用中文对用户的请求进行友好、确认性的回应。如果无法执行操作，请解释原因。" },
-            updatedTimeline: timelineSchema,
+            changes: { type: Type.ARRAY, items: changeOperationSchema, description: "An array of change operations to apply to the timeline." }
         },
-        required: ["responseText", "updatedTimeline"],
+        required: ["responseText", "changes"],
     };
     const currentDateContext = this.getCurrentDateContext();
 
     const response = await this.ai.models.generateContent({
         model: "gemini-2.5-flash",
         contents: `${currentDateContext} 作为一名高级项目管理AI助手，请根据用户的自然语言请求，智能地修改提供的项目计划JSON。
-您的任务是：
-1.  **解析意图**：深入理解用户的请求，这可能包括任务的新增、查询、状态更新（例如，“我做完了方案设计”），日期调整（“把EDC系统交付推迟2天”），甚至是删除（“取消那个市场调研任务”）。
-2.  **精确时间**：当用户提到相对时间（如“推迟2天”、“明天中午12点”），你必须根据当前时间上下文计算出精确的“YYYY-MM-DD HH:mm”格式的时间，并更新相应的“开始时间”或“截止日期”字段。
-3.  **智能操作**：
-    - **更新**: 根据请求修改任务的字段。
-    - **完成**: 当用户表示任务完成时，请将其 '状态' 字段更新为 '已完成'，并设置 '已完成' 字段为 true。如果一个任务的所有子任务都已完成，请考虑将其父任务也标记为 '已完成'。
-    - **删除**: 如果用户要求删除任务，请从计划中移除对应的任务对象。
-    - **查询**: 如果用户只是提问（例如，“EDC系统交付是什么时候？”），请在 responseText 中回答问题，并返回未经修改的原始项目计划。
-4.  **返回结果**：返回一个包含两部分的JSON对象：一个是对用户操作的友好中文确认信息（responseText），另一个是完整更新后的项目计划（updatedTimeline）。请确保整个项目计划被完整返回，而不仅仅是修改的部分。如果无法执行操作，请在responseText中说明原因，并返回原始的updatedTimeline。
+您的任务是 **生成一个操作指令列表**，而不是返回修改后的整个项目计划。
+
+**输出格式**:
+您必须返回一个JSON对象，包含两部分:
+1.  \`responseText\`: 一个对用户操作的友好中文确认信息。
+2.  \`changes\`: 一个操作指令数组，用于修改项目计划。
+
+**操作指令 (ChangeOperation) 结构**:
+每个指令是一个对象，包含:
+- \`op\`: 操作类型，可选值为 "update", "add", "delete"。
+- \`path\`: 一个指向目标位置的对象，包含:
+    - \`phaseIndex\`: 目标所在的'阶段'的索引。
+    - \`projectIndex\`: (可选) 如果目标在阶段的内嵌'项目'里，提供该项目的索引。
+    - \`taskPath\`: 一个索引数组，指向目标任务。
+- \`value\`: 操作所需的数据。
+
+**操作指令详解**:
+- **update**: 修改一个已存在的任务。
+  - \`path\`: 必须精确指向要修改的任务。例如 \`"taskPath": [0, 1]\` 指向第一个任务的第二个子任务。
+  - \`value\`: 一个 **部分任务对象**，只包含需要修改的字段。例如 \`{"状态": "已完成"}\`。
+- **add**: 添加一个新任务。
+  - \`path\`: 必须指向 **父级**。
+    - 如果要添加为子任务，\`taskPath\` 指向父任务。
+    - 如果要添加为顶层任务，\`taskPath\` 是一个空数组 \`[]\`。
+  - \`value\`: 一个 **完整的、新的任务对象**，必须包含一个新的唯一 \`id\`。
+- **delete**: 删除一个任务。
+  - \`path\`: 必须精确指向要删除的任务。
+  - \`value\`: 此字段不使用。
+
+**重要规则**:
+1.  **路径准确性**: 'path' 中的索引必须准确无误。
+2.  **时间解析**: 当用户提到相对时间（如“推迟2天”、“明天中午12点”），你必须根据当前时间上下文计算出精确的“YYYY-MM-DD HH:mm”格式的时间，并在 \`value\` 中更新相应的“开始时间”或“截止日期”字段。
+3.  **状态同步**: 当更新 \`状态\` 为 '已完成' 时，请同时在 \`value\` 中设置 \`"已完成": true\`。
+4.  **查询处理**: 如果用户只是提问（例如，“EDC系统交付是什么时候？”），请在 \`responseText\` 中回答问题，并返回一个空的 \`changes\` 数组 \`[]\`。
 
 ---
 当前项目计划:
@@ -202,6 +252,7 @@ ${JSON.stringify(timeline)}
         config: { responseMimeType: "application/json", responseSchema: responseSchema },
     });
 
-    return JSON.parse(response.text);
+    const result = JSON.parse(response.text);
+    return result;
   }
 }

@@ -87,6 +87,18 @@ export interface ChatMessage {
     sources?: { uri: string; title: string }[];
 }
 
+export interface PathIndices {
+  phaseIndex: number;
+  projectIndex?: number;
+  taskPath: number[];
+}
+
+export interface ChangeOperation {
+  op: 'update' | 'add' | 'delete';
+  path: PathIndices;
+  value?: Partial<任务> | 任务; // Partial for update, full for add
+}
+
 export interface AppState {
   currentUser: CurrentUser | null;
   allUsers: User[]; 

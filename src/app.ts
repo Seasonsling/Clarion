@@ -1,7 +1,7 @@
 import { GeminiService } from './gemini';
 import { Renderer } from './renderer';
 import * as api from './api';
-import { AppState, CurrentUser, Indices, 任务, 时间轴数据, 评论, TopLevelIndices, ProjectMember, ProjectMemberRole, Attachment } from './types';
+import { AppState, ChangeOperation, CurrentUser, Indices, 任务, 时间轴数据, 评论, TopLevelIndices, ProjectMember, ProjectMemberRole, Attachment } from './types';
 
 export class TimelineApp {
   public state: AppState = {
@@ -10,7 +10,7 @@ export class TimelineApp {
     projectsHistory: [],
     timeline: null,
     isLoading: false,
-    loadingText: "排兵布阵，军令生成中...",
+    loadingText: "初始化项目中...",
     currentView: 'vertical',
     authView: 'login',
     calendarDate: new Date(),
@@ -365,8 +365,8 @@ export class TimelineApp {
     const username = usernameInput.value;
     const password = passwordInput.value;
 
-    if (username.length < 3 || password.length < 4) {
-        this.registerErrorEl.textContent = "用户名至少3个字符，密码至少4个字符。";
+    if (username.length < 2 || password.length < 4) {
+        this.registerErrorEl.textContent = "用户名至少2个字符，密码至少4个字符。";
         return;
     }
     
@@ -789,7 +789,7 @@ export class TimelineApp {
         const projectToUpdate = this.state.projectsHistory.find(p => p.id === projectId);
         if (!projectToUpdate) return;
         
-        this.setState({ isLoading: true, loadingText: "智能分析中，请稍候..." });
+        this.setState({ isLoading: true, loadingText: "分析中，请稍候..." });
         try {
             const parsedData = await this.ai.quickAddTask(projectToUpdate, taskDescription, assignee, deadline);
             const updatedTimeline = this.postProcessTimelineData({ ...projectToUpdate, ...parsedData });
@@ -871,6 +871,68 @@ export class TimelineApp {
         await this.submitChat(this.state.lastUserChatPrompt);
     }
 
+    private applyChanges(changes: ChangeOperation[]): void {
+        if (!this.state.timeline) return;
+
+        const updatesAndAdds = changes.filter(c => c.op !== 'delete');
+        const deletes = changes.filter(c => c.op === 'delete');
+
+        deletes.sort((a, b) => {
+            const pathA = a.path.taskPath;
+            const pathB = b.path.taskPath;
+            if (pathA.length !== pathB.length) return pathB.length - pathA.length;
+            for (let i = 0; i < pathA.length; i++) {
+                if (pathA[i] !== pathB[i]) return pathB[i] - pathA[i];
+            }
+            return 0;
+        });
+    
+        for (const change of [...updatesAndAdds, ...deletes]) {
+            try {
+                switch (change.op) {
+                    case 'update': {
+                        const result = this.getTaskFromPath(change.path as Indices);
+                        if (result && change.value) {
+                            Object.assign(result.task, change.value);
+                            if ('状态' in change.value) {
+                                result.task.已完成 = result.task.状态 === '已完成';
+                            }
+                        }
+                        break;
+                    }
+                    case 'add': {
+                        const { phaseIndex, projectIndex, taskPath } = change.path;
+                        if (taskPath.length === 0) {
+                            const phase = this.state.timeline.阶段[phaseIndex];
+                            if (phase) {
+                                const owner = typeof projectIndex === 'number' ? phase.项目![projectIndex] : phase;
+                                if (!owner.任务) owner.任务 = [];
+                                owner.任务.push(change.value as 任务);
+                            }
+                        } else {
+                            const parentResult = this.getTaskFromPath(change.path as Indices);
+                            if (parentResult) {
+                                const parentTask = parentResult.task;
+                                if (!parentTask.子任务) parentTask.子任务 = [];
+                                parentTask.子任务.push(change.value as 任务);
+                            }
+                        }
+                        break;
+                    }
+                    case 'delete': {
+                        const result = this.getTaskFromPath(change.path as Indices);
+                        if (result) {
+                            result.parent.splice(result.taskIndex, 1);
+                        }
+                        break;
+                    }
+                }
+            } catch(e) {
+                console.error("Failed to apply change:", change, e);
+            }
+        }
+    }
+
     private async submitChat(userInput: string): Promise<void> {
         if (!this.state.apiKey) {
             this.renderer.showApiKeyModal(true);
@@ -898,10 +960,13 @@ export class TimelineApp {
                 }
                 if (!this.state.timeline) return;
                 
-                const { responseText, updatedTimeline } = await this.ai.processChatWithModification(this.state.timeline, userInput);
-                const processedTimeline = this.postProcessTimelineData({ ...this.state.timeline, ...updatedTimeline });
+                const { responseText, changes } = await this.ai.processChatWithModification(this.state.timeline, userInput);
                 
-                await this.saveCurrentProject(processedTimeline);
+                if (changes && changes.length > 0) {
+                    this.applyChanges(changes);
+                    await this.saveCurrentProject(this.state.timeline);
+                }
+                
                 this.setState({ chatHistory: [...this.state.chatHistory, { role: 'model', text: responseText }] });
             }
         } catch (error) {
