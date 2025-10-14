@@ -1,22 +1,19 @@
 {
-  "functions": {
-    "api/auth/login.ts": {
-      "runtime": "nodejs20.x"
+  "builds": [
+    {
+      "src": "api/**/*.ts",
+      "use": "@vercel/node"
     },
-    "api/auth/register.ts": {
-      "runtime": "nodejs20.x"
-    },
-    "api/projects/index.ts": {
-      "runtime": "nodejs20.x"
-    },
-    "api/projects/[id].ts": {
-      "runtime": "nodejs20.x"
-    },
-    "api/users/index.ts": {
-      "runtime": "nodejs20.x"
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "public"
+      }
     }
-  },
+  ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" }
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
