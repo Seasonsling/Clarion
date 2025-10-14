@@ -45,9 +45,9 @@ export default async function handler(
         userId: user.id,
         username: user.username,
         profile: {
-          displayName: user.display_name,
-          avatarUrl: user.avatar_url,
-          color: user.color,
+          displayName: user.display_name || user.username,
+          avatarUrl: user.avatar_url || null,
+          color: user.color || '#8a8a8a',
         },
       },
       JWT_SECRET,

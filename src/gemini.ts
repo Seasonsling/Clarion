@@ -72,7 +72,6 @@ ${projectDescription}
 ---`;
     
     const response = await this.ai.models.generateContent({
-      // FIX: Updated model from 'gemini-2.5-pro' to 'gemini-2.5-flash' to align with recommended models for general text tasks.
       model: "gemini-2.5-flash",
       contents: prompt,
       config: { responseMimeType: "application/json", responseSchema: responseSchema },
@@ -110,7 +109,6 @@ ${JSON.stringify(timeline, null, 2)}
 Provide the report in a clean, readable format suitable for copying into an email or document. Use markdown for headers.`;
 
     const response = await this.ai.models.generateContent({
-        // FIX: Updated model from 'gemini-2.5-pro' to 'gemini-2.5-flash' to align with recommended models for general text tasks.
         model: "gemini-2.5-flash",
         contents: prompt,
     });
@@ -141,7 +139,6 @@ ${JSON.stringify(projectToUpdate)}
 ---`;
 
     const response = await this.ai.models.generateContent({
-        // FIX: Updated model from 'gemini-2.5-pro' to 'gemini-2.5-flash' to align with recommended models for general text tasks.
         model: "gemini-2.5-flash",
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema },

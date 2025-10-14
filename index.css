@@ -431,9 +431,9 @@ textarea#quick-add-input:focus {
 #timeline-header {
     display: grid;
     grid-template-areas:
-        "name name name"
+        "name name status actions"
         "switcher specific filters actions";
-    grid-template-columns: auto auto 1fr auto;
+    grid-template-columns: auto 1fr auto auto;
     align-items: center;
     margin-bottom: 2rem;
     gap: 1rem;
@@ -457,6 +457,8 @@ textarea#quick-add-input:focus {
 }
 /* Save Status Indicator */
 #save-status-indicator {
+    grid-area: status;
+    justify-self: end;
     font-size: 0.9rem;
     font-weight: 600;
     color: var(--text-secondary);

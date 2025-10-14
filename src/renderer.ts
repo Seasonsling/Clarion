@@ -1,6 +1,5 @@
 import type { TimelineApp } from './app';
 import { getInitials, parseDate, getWeekStartDate, stringToColor } from './utils';
-// FIX: Imported missing types 'ViewType' and 'ProjectMemberRole' to resolve compilation errors.
 import { 阶段, 任务, Indices, TopLevelIndices, TaskStatus, GanttGranularity, User, 时间轴数据, ViewType, ProjectMemberRole } from './types';
 
 export class Renderer {
