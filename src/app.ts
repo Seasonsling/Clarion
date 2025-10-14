@@ -329,42 +329,61 @@ export class TimelineApp {
     this.setState({ authView: view });
   }
 
+  private async _performLoginAndInitialize(username, password) {
+    // 1. Set global loading state
+    this.setState({ isLoading: true, loadingText: "登录中..." });
+    
+    // 2. Perform login API call
+    const loginResponse = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+    });
+    const loginData = await loginResponse.json();
+    if (!loginResponse.ok) {
+        throw new Error(loginData.message || "用户名或密码无效。");
+    }
+    
+    // 3. Create user object
+    const { token } = loginData;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const currentUser: CurrentUser = {
+        id: payload.userId.toString(),
+        username: payload.username,
+        profile: payload.profile,
+        token: token,
+    };
+
+    // 4. Fetch initial data
+    this.setState({ loadingText: '正在同步您的云端数据...' });
+    const [projects, allUsers] = await Promise.all([
+        api.fetchProjects(currentUser.token),
+        api.fetchAllUsers(currentUser.token),
+    ]);
+    
+    // 5. Set final state and turn off loading
+    this.setState({
+        currentUser: currentUser,
+        projectsHistory: projects,
+        allUsers: allUsers,
+        isLoading: false
+    });
+    
+    this.handleUrlInvitation();
+  }
+
   private async handleLogin(event: Event): Promise<void> {
     event.preventDefault();
     this.loginErrorEl.textContent = '';
-    const usernameInput = (this.loginForm.querySelector('input[name="username"]') as HTMLInputElement);
-    const passwordInput = (this.loginForm.querySelector('input[name="password"]') as HTMLInputElement);
-    const username = usernameInput.value;
-    const password = passwordInput.value;
-    
-    this.setState({ isLoading: true, loadingText: "登录中..." });
-    try {
-        const response = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password }),
-        });
+    const username = (this.loginForm.querySelector('input[name="username"]') as HTMLInputElement).value;
+    const password = (this.loginForm.querySelector('input[name="password"]') as HTMLInputElement).value;
 
-        const data = await response.json();
-        if (response.ok) {
-            const { token } = data;
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const currentUser: CurrentUser = {
-                id: payload.userId.toString(),
-                username: payload.username,
-                profile: payload.profile,
-                token: token,
-            };
-            this.setState({ currentUser: currentUser }); // This triggers saveState
-            await this.initializeApp(currentUser);
-        } else {
-            this.loginErrorEl.textContent = data.message || "用户名或密码无效。";
-        }
-    } catch (error) {
-        this.loginErrorEl.textContent = "登录时发生网络错误。";
-        console.error("Login fetch error:", error);
-    } finally {
+    try {
+        await this._performLoginAndInitialize(username, password);
+    } catch (error: any) {
+        this.loginErrorEl.textContent = error.message || "登录时发生网络错误。";
         this.setState({ isLoading: false });
+        console.error("Login Error:", error);
     }
   }
 
@@ -383,25 +402,23 @@ export class TimelineApp {
     
     this.setState({ isLoading: true, loadingText: "注册中..." });
     try {
-        const response = await fetch('/api/auth/register', {
+        const regResponse = await fetch('/api/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password }),
         });
 
-        const data = await response.json();
-        if (response.ok) {
-             this.loginForm.querySelector<HTMLInputElement>('input[name="username"]')!.value = username;
-             this.loginForm.querySelector<HTMLInputElement>('input[name="password"]')!.value = password;
-             await this.handleLogin(event);
-        } else {
-            this.registerErrorEl.textContent = data.message || "注册失败。";
+        const regData = await regResponse.json();
+        if (!regResponse.ok) {
+            throw new Error(regData.message || "注册失败。");
         }
-    } catch (error) {
-        this.registerErrorEl.textContent = "注册时发生网络错误。";
-        console.error("Register fetch error:", error);
-    } finally {
+        
+        await this._performLoginAndInitialize(username, password);
+
+    } catch (error: any) {
+        this.registerErrorEl.textContent = error.message || "注册或登录时发生网络错误。";
         this.setState({ isLoading: false });
+        console.error("Register/Login Error:", error);
     }
   }
 
