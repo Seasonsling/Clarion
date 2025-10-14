@@ -109,7 +109,7 @@ ${JSON.stringify(timeline, null, 2)}
 Provide the report in a clean, readable format suitable for copying into an email or document. Use markdown for headers.`;
 
     const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-pro",
         contents: prompt,
     });
     return response.text;
@@ -139,7 +139,7 @@ ${JSON.stringify(projectToUpdate)}
 ---`;
 
     const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-pro",
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema },
     });
@@ -205,7 +205,7 @@ ${JSON.stringify(timeline)}
     const currentDateContext = this.getCurrentDateContext();
 
     const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-2.5-pro",
         contents: `${currentDateContext} 作为一名高级项目管理AI助手，请根据用户的自然语言请求，智能地修改提供的项目计划JSON。
 您的任务是 **生成一个操作指令列表**，而不是返回修改后的整个项目计划。
 
