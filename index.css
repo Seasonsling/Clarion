@@ -69,18 +69,24 @@ body {
   max-width: 1600px;
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1rem;
+}
+
+.main-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .app-header {
-  text-align: center;
+  text-align: left;
 }
 
 .app-header h1 {
   font-size: 3rem;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 0.5rem;
+  margin: 0;
   text-shadow: 1px 1px 0 var(--secondary-color);
 }
 
@@ -88,7 +94,7 @@ body {
   font-size: 1.1rem;
   color: var(--text-secondary);
   max-width: 600px;
-  margin: 0 auto;
+  margin: 0;
 }
 
 #auth-section,
@@ -425,7 +431,7 @@ textarea#quick-add-input:focus {
 #timeline-header {
     display: grid;
     grid-template-areas:
-        "name name name user"
+        "name name name"
         "switcher specific filters actions";
     grid-template-columns: auto auto 1fr auto;
     align-items: center;
@@ -468,8 +474,6 @@ textarea#quick-add-input:focus {
 
 /* User Display & Avatar */
 #user-display {
-    grid-area: user;
-    justify-self: end;
     display: flex;
     align-items: center;
     gap: 1rem;
@@ -1175,13 +1179,43 @@ input.inline-edit:focus {
     color: var(--text-primary);
     white-space: pre-wrap;
 }
+.comment-attachments {
+    padding-left: 46px;
+    margin-top: 0.5rem;
+}
+.comment-attachment-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background-color: var(--secondary-color);
+    padding: 0.4rem 0.8rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    text-decoration: none;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+.comment-attachment-item:hover {
+    border-color: var(--accent-color);
+}
+
 .new-comment-form {
     display: flex;
     gap: 0.5rem;
     align-items: flex-start;
+    flex-wrap: wrap;
+}
+.new-comment-form .avatar {
+    margin-top: 3px;
+}
+.new-comment-form-main {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
 }
 .new-comment-form textarea {
-    flex-grow: 1;
+    width: 100%;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 0.5rem;
@@ -1196,12 +1230,20 @@ input.inline-edit:focus {
     border-color: var(--accent-color-light);
     box-shadow: 0 0 0 2px rgba(249, 168, 37, 0.3);
 }
+.new-comment-form .comment-form-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.attached-file-display {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
 .new-comment-form .primary-btn {
     padding: 0.5rem 1rem;
     font-size: 0.9rem;
-    flex-shrink: 0;
 }
-
 
 /* Loading Overlay */
 #loading-overlay {
@@ -2165,7 +2207,7 @@ input.inline-edit:focus {
 @media (max-width: 1200px) {
     #timeline-header {
       grid-template-areas:
-        "name name user"
+        "name name"
         "switcher specific actions"
         "filters filters actions";
       grid-template-columns: auto auto 1fr;
@@ -2182,23 +2224,22 @@ input.inline-edit:focus {
     body {
         padding: 1rem;
     }
+    .main-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1rem;
+    }
     .app-header h1 {
         font-size: 2rem;
     }
     #timeline-header {
       grid-template-areas:
         "name name"
-        "user user"
         "actions actions"
         "switcher switcher"
         "specific specific"
         "filters filters";
       grid-template-columns: 1fr 1fr;
-    }
-    #user-display {
-        justify-self: start;
-        margin-top: -1rem;
-        margin-bottom: 0.5rem;
     }
     .button-group.timeline-actions {
         justify-content: flex-start;

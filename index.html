@@ -26,10 +26,13 @@
 </head>
   <body>
     <main id="app-container">
-      <header class="app-header">
-        <h1>吹角</h1>
-        <p>运筹帷幄，跃然纸上</p>
-      </header>
+      <div class="main-header">
+        <header class="app-header">
+          <h1>吹角</h1>
+          <p>运筹帷幄，跃然纸上</p>
+        </header>
+        <div id="user-display" class="hidden"></div>
+      </div>
       
       <section id="auth-section" class="hidden">
         <div class="input-card">
@@ -119,7 +122,6 @@
          <div id="timeline-header">
             <h2 id="project-name" class="editable" data-field="projectName"></h2>
             <div id="save-status-indicator"></div>
-            <div id="user-display"></div>
             <div id="view-switcher" class="view-switcher"></div>
             <div id="view-specific-controls"></div>
             <div id="filter-sort-controls"></div>
