@@ -133,6 +133,8 @@ export class TimelineApp {
                 };
                 // Set current user synchronously to avoid UI flicker
                 this.state.currentUser = currentUser;
+                document.body.classList.add('logged-in');
+                document.body.classList.remove('logged-out');
                 this.render(); // Render with user logged in
                 await this.initializeApp(currentUser); // Then fetch data
             } else {
@@ -143,6 +145,8 @@ export class TimelineApp {
             this.setState({ currentUser: null });
         }
     } else {
+        document.body.classList.remove('logged-in');
+        document.body.classList.add('logged-out');
         this.render();
     }
   }
@@ -236,13 +240,13 @@ export class TimelineApp {
     this.loadingTextEl = document.getElementById("loading-text")!;
     this.importBtn = document.getElementById("import-btn") as HTMLButtonElement;
     this.exportBtn = document.getElementById("export-btn") as HTMLButtonElement;
-    this.reportBtnToggle = document.getElementById("report-btn-toggle") as HTMLButtonElement;
-    this.reportDropdown = document.getElementById("report-dropdown") as HTMLElement;
     this.importFileEl = document.getElementById("import-file") as HTMLInputElement;
     this.viewSwitcherEl = document.getElementById("view-switcher")!;
     this.viewSpecificControlsEl = document.getElementById("view-specific-controls");
     this.filterSortControlsEl = document.getElementById("filter-sort-controls")!;
-    // Home Screen
+    this.reportBtnToggle = document.getElementById("report-btn-toggle") as HTMLButtonElement;
+    this.reportDropdown = document.getElementById("report-dropdown") as HTMLElement;
+    // Home Screen Elements
     this.historySectionEl = document.getElementById("history-section")!;
     this.historyListEl = document.getElementById("history-list")!;
     this.quickAddFormEl = document.getElementById("quick-add-form") as HTMLFormElement;
@@ -259,7 +263,7 @@ export class TimelineApp {
     this.chatAttachBtn = document.getElementById('chat-attach-btn') as HTMLButtonElement;
     this.chatFileInput = document.getElementById('chat-file-input') as HTMLInputElement;
     this.chatAttachmentPreviewEl = document.getElementById('chat-attachment-preview')!;
-    // API Key Modal
+    // API Key Modal Elements
     this.apiKeyModalOverlay = document.getElementById('api-key-modal-overlay')!;
     this.apiKeyForm = document.getElementById('api-key-form') as HTMLFormElement;
     this.apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement;
@@ -425,6 +429,16 @@ export class TimelineApp {
   public setState(newState: Partial<AppState>, shouldRender: boolean = true): void {
     const oldUser = this.state.currentUser;
     const oldApiKey = this.state.apiKey;
+
+    if (newState.currentUser !== undefined && newState.currentUser !== oldUser) {
+        if (newState.currentUser) {
+            document.body.classList.add('logged-in');
+            document.body.classList.remove('logged-out');
+        } else {
+            document.body.classList.remove('logged-in');
+            document.body.classList.add('logged-out');
+        }
+    }
 
     this.state = { ...this.state, ...newState };
     
