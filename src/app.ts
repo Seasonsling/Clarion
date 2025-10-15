@@ -103,19 +103,20 @@ export class TimelineApp {
   }
   
   private async loadStateAndInitialize(): Promise<void> {
-    const savedDataJSON = localStorage.getItem("timelineAppData");
     let token: string | null = null;
     let apiKey: string | null = null;
-    
-    if (savedDataJSON) {
-        try {
+  
+    try {
+        const savedDataJSON = localStorage.getItem("timelineAppData");
+        if (savedDataJSON) {
             const savedData = JSON.parse(savedDataJSON);
             token = savedData.authToken || null;
             apiKey = savedData.apiKey || null;
-        } catch(e) {
-            console.error("Failed to parse saved data, clearing.", e);
-            localStorage.removeItem("timelineAppData");
         }
+    } catch (e) {
+        console.error("Could not load data from localStorage. Proceeding as logged out.", e);
+        token = null;
+        apiKey = null;
     }
     
     this.state.apiKey = apiKey;
@@ -145,9 +146,7 @@ export class TimelineApp {
             this.setState({ currentUser: null });
         }
     } else {
-        document.body.classList.remove('logged-in');
-        document.body.classList.add('logged-out');
-        this.render();
+        this.setState({ currentUser: null });
     }
   }
   
