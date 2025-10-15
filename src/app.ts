@@ -1,3 +1,4 @@
+
 import { GeminiService } from './gemini';
 import { Renderer } from './renderer';
 import * as api from './api';
@@ -105,6 +106,7 @@ export class TimelineApp {
   private async loadStateAndInitialize(): Promise<void> {
     let token: string | null = null;
     let apiKey: string | null = null;
+    let validUser: CurrentUser | null = null;
   
     try {
         const savedDataJSON = localStorage.getItem("timelineAppData");
@@ -114,38 +116,37 @@ export class TimelineApp {
             apiKey = savedData.apiKey || null;
         }
     } catch (e) {
-        console.error("Could not load data from localStorage. Proceeding as logged out.", e);
-        token = null;
-        apiKey = null;
+        console.warn("Could not load data from localStorage. Proceeding as logged out.", e);
+        // Let token and apiKey remain null
     }
     
-    this.state.apiKey = apiKey;
-    this.ai.updateApiKey(this.state.apiKey || '');
+    // Set api key from storage before any potential AI calls
+    this.setState({ apiKey: apiKey }, false);
     
     if (token) {
         try {
             const payload = JSON.parse(atob(token.split('.')[1]));
             if (payload.exp * 1000 > Date.now()) {
-                const currentUser: CurrentUser = {
+                validUser = {
                     id: payload.userId.toString(),
                     username: payload.username,
                     profile: payload.profile,
                     token: token,
                 };
-                // Set current user synchronously to avoid UI flicker
-                this.state.currentUser = currentUser;
-                document.body.classList.add('logged-in');
-                document.body.classList.remove('logged-out');
-                this.render(); // Render with user logged in
-                await this.initializeApp(currentUser); // Then fetch data
-            } else {
-                 this.setState({ currentUser: null });
             }
         } catch (e) {
-            console.error("Invalid token found:", e);
-            this.setState({ currentUser: null });
+            console.error("Invalid or expired token found in storage.", e);
+            // validUser remains null, will proceed to log out state
         }
+    }
+
+    if (validUser) {
+        // We have a valid user, set the user state and fetch their data
+        // initializeApp will handle loading indicators and subsequent renders
+        this.setState({ currentUser: validUser }, false); // Set user but don't render yet
+        await this.initializeApp(validUser);
     } else {
+        // No valid user, ensure logged-out state and render the login screen
         this.setState({ currentUser: null });
     }
   }
@@ -457,11 +458,15 @@ export class TimelineApp {
   }
 
   private saveState(): void {
-    const appData = {
-        authToken: this.state.currentUser?.token,
-        apiKey: this.state.apiKey,
-    };
-    localStorage.setItem("timelineAppData", JSON.stringify(appData));
+    try {
+        const appData = {
+            authToken: this.state.currentUser?.token,
+            apiKey: this.state.apiKey,
+        };
+        localStorage.setItem("timelineAppData", JSON.stringify(appData));
+    } catch (e) {
+        console.warn("Could not save state to localStorage. This might happen in private browsing mode.", e);
+    }
   }
   
   private handleClearClick(): void {
