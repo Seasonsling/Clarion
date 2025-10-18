@@ -60,7 +60,7 @@ async function handlePost(req: VercelRequest, res: VercelResponse) {
         await sql.query('ROLLBACK');
         console.error('Failed to create project:', error);
         // Check for unique constraint violation
-        if (typeof error === 'object' && error && 'code' in error && (error as { code: unknown }).code === '23505') {
+        if (error.code === '23505') {
             return res.status(409).json({ message: 'A project with this ID already exists.' });
         }
         return res.status(500).json({ message: 'Internal Server Error' });
