@@ -60,3 +60,17 @@ export function getWeekStartDate(d: Date): Date {
     const diff = date.getDate() - day + (day === 0 ? -6 : 1);
     return new Date(date.setDate(diff));
 }
+
+export function blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64String = reader.result as string;
+            // The result includes the data URL prefix (e.g., "data:image/png;base64,"),
+            // which needs to be removed for the API.
+            resolve(base64String.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}

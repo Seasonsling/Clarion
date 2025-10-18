@@ -52,6 +52,10 @@ export function cacheDOMElements(app: ITimelineApp): void {
     app.apiKeyForm = document.getElementById('api-key-form') as HTMLFormElement;
     app.apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement;
     app.apiKeyErrorEl = document.getElementById('api-key-error')!;
+    app.projectCreationCard = document.getElementById('project-creation-card')!;
+    app.uploadFilesBtn = document.getElementById('upload-files-btn') as HTMLButtonElement;
+    app.projectFilesInput = document.getElementById('project-files-input') as HTMLInputElement;
+    app.filePreviewContainer = document.getElementById('file-preview-container')!;
 }
 
 export function addEventListeners(app: ITimelineApp): void {
@@ -87,6 +91,37 @@ export function addEventListeners(app: ITimelineApp): void {
             }
         }
     });
+    
+    app.uploadFilesBtn.addEventListener('click', () => app.projectFilesInput.click());
+    app.projectFilesInput.addEventListener('change', (e) => {
+        const files = (e.target as HTMLInputElement).files;
+        if (files) {
+            handlers.handleProjectFiles.call(app, files);
+        }
+        (e.target as HTMLInputElement).value = ''; 
+    });
+
+    const dropZone = app.projectCreationCard;
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('dragover');
+    });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('dragover');
+        const files = e.dataTransfer?.files;
+        if (files) {
+            handlers.handleProjectFiles.call(app, files);
+        }
+    });
+
     app.chatToggleBtn.addEventListener('click', () => handlers.toggleChat.call(app, true));
     app.chatCloseBtn.addEventListener('click', () => handlers.toggleChat.call(app, false));
     app.chatBackdropEl.addEventListener('click', () => handlers.toggleChat.call(app, false));

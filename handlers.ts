@@ -2,7 +2,7 @@ import type { ITimelineApp, 时间轴数据, CurrentUser, ChatMessage } from './
 import { GoogleGenAI, Type } from "@google/genai";
 import * as api from './api.js';
 import { renderUI } from './ui.js';
-import { decodeJwtPayload } from './utils.js';
+import { decodeJwtPayload, blobToBase64 } from './utils.js';
 
 export function handleAuthSwitch(this: ITimelineApp, view: 'login' | 'register'): void {
   this.setState({ authView: view });
@@ -79,6 +79,20 @@ export async function handleRegister(this: ITimelineApp, event: Event): Promise<
   }
 }
 
+export function handleProjectFiles(this: ITimelineApp, files: FileList): void {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+    const newFiles = Array.from(files).filter(file => {
+        if (allowedTypes.includes(file.type)) {
+            return true;
+        }
+        console.warn(`Skipping unsupported file type: ${file.type}`);
+        return false;
+    });
+
+    this.projectCreationFiles.push(...newFiles);
+    (this as any).renderFilePreviews();
+}
+
 export async function handleGenerateClick(this: ITimelineApp): Promise<void> {
     if (!this.state.apiKey) {
         renderUI.showApiKeyModal(this, true);
@@ -90,8 +104,8 @@ export async function handleGenerateClick(this: ITimelineApp): Promise<void> {
         return;
     }
     const projectDescription = this.projectInput.value.trim();
-    if (!projectDescription) {
-      alert("请先阐明您的战略目标。");
+    if (!projectDescription && this.projectCreationFiles.length === 0) {
+      alert("请先阐明您的战略目标或上传相关文件。");
       return;
     }
 
@@ -99,20 +113,35 @@ export async function handleGenerateClick(this: ITimelineApp): Promise<void> {
 
     try {
       const responseSchema = (this as any).createTimelineSchema();
-      const prompt = `${(this as any).getCurrentDateContext()} 为以下项目描述，创建一份详尽的、分阶段的中文项目计划。计划应包含项目名称、阶段、任务及可嵌套的子任务。每个任务需包含：任务名称、状态（'待办'、'进行中'或'已完成'）、优先级（'高'、'中'或'低'）、详情、开始时间、截止日期（格式均为 YYYY-MM-DD HH:mm）、负责人和备注。如果描述中提到了负责人，请将他们的名字放入“负责人”字段。
+      const prompt = `${(this as any).getCurrentDateContext()} 为以下项目描述${this.projectCreationFiles.length > 0 ? "和附加文件" : ""}，创建一份详尽的、分阶段的中文项目计划。计划应包含项目名称、阶段、任务及可嵌套的子任务。每个任务需包含：任务名称、状态（'待办'、'进行中'或'已完成'）、优先级（'高'、'中'或'低'）、详情、开始时间、截止日期（格式均为 YYYY-MM-DD HH:mm）、负责人和备注。如果描述或文件中提到了负责人，请将他们的名字放入“负责人”字段。
 **极其重要**:
 1.  **唯一ID**: 你必须为每一个任务（包括子任务）生成一个在整个项目中唯一的字符串 'id'。
 2.  **依赖关系**: 你必须识别任务间的依赖关系。例如，如果“任务B”必须在“任务A”完成后才能开始，你必须将“任务A”的 'id' 添加到“任务B”的 'dependencies' 数组中。
-3.  **时间解析**: 如果项目描述中提到了任何日期或时间（例如“下周五截止”、“明天下午3点开始”），你必须基于当前时间上下文，将它们解析为精确的日期和时间，并填入相应的“开始时间”和“截止日期”字段。不要将时间信息遗漏在“详情”字段中。
+3.  **时间解析**: 如果项目描述或文件中提到了任何日期或时间（例如“下周五截止”、“明天下午3点开始”），你必须基于当前时间上下文，将它们解析为精确的日期和时间，并填入相应的“开始时间”和“截止日期”字段。不要将时间信息遗漏在“详情”字段中。
+4.  **文件内容**: 如果提供了文件，你必须仔细分析其内容（图片或文字），并将相关信息提取并整合到项目计划中。
 
 项目描述如下：
 ---
-${projectDescription}
+${projectDescription || "（无文字描述，请主要参考附加文件）"}
 ---`;
       
+      const parts: any[] = [];
+
+      for (const file of this.projectCreationFiles) {
+          const base64Data = await blobToBase64(file);
+          parts.push({
+              inlineData: {
+                  mimeType: file.type,
+                  data: base64Data
+              }
+          });
+      }
+
+      parts.push({ text: prompt });
+
       const response = await this.ai.models.generateContent({
         model: "gemini-2.5-pro",
-        contents: prompt,
+        contents: { parts },
         config: { responseMimeType: "application/json", responseSchema: responseSchema },
       });
       
@@ -129,6 +158,10 @@ ${projectDescription}
       this.setState({ isLoading: true, loadingText: '正在保存新项目...'});
       const savedProject = await api.createProject(processedData, this.state.currentUser.token);
       const newHistory = [...this.state.projectsHistory, savedProject];
+      
+      this.projectCreationFiles = [];
+      (this as any).renderFilePreviews();
+      
       this.setState({ timeline: savedProject, projectsHistory: newHistory, currentView: 'vertical', chatHistory: [], isChatOpen: false });
     } catch (error) {
       console.error("生成或保存计划时出错：", error);

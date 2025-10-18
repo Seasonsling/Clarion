@@ -7,7 +7,7 @@
     "build": "mkdir -p public && cp index.html index.css public/ && esbuild index.tsx --bundle --outfile=public/index.js --target=es2020 --jsx=automatic"
   },
   "dependencies": {
-    "@google/genai": "^1.22.0",
+    "@google/genai": "^1.24.0",
     "@vercel/postgres": "^0.9.0",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2"

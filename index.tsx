@@ -43,6 +43,8 @@ export class TimelineApp implements ITimelineApp {
     saveStatus: 'idle',
     collapsedItems: new Set<string>(),
   };
+  
+  public projectCreationFiles: File[] = [];
 
   public ai: GoogleGenAI;
 
@@ -96,6 +98,10 @@ export class TimelineApp implements ITimelineApp {
   public apiKeyForm: HTMLFormElement;
   public apiKeyInput: HTMLInputElement;
   public apiKeyErrorEl: HTMLElement;
+  public projectCreationCard: HTMLElement;
+  public uploadFilesBtn: HTMLButtonElement;
+  public projectFilesInput: HTMLInputElement;
+  public filePreviewContainer: HTMLElement;
 
 
   constructor() {
@@ -492,6 +498,42 @@ export class TimelineApp implements ITimelineApp {
     
     public handleRemoveAttachment(): void {
         this.setState({ chatAttachment: null });
+    }
+
+    public handleRemoveProjectFile(index: number): void {
+        this.projectCreationFiles.splice(index, 1);
+        this.renderFilePreviews();
+    }
+
+    public renderFilePreviews(): void {
+        this.filePreviewContainer.innerHTML = '';
+        this.projectCreationFiles.forEach((file, index) => {
+            const itemEl = document.createElement('div');
+            itemEl.className = 'file-preview-item';
+
+            let previewContent = '';
+            if (file.type.startsWith('image/')) {
+                previewContent = `<img src="${URL.createObjectURL(file)}" class="preview-image" alt="${file.name}">`;
+            } else {
+                previewContent = `<svg class="file-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`;
+            }
+            
+            itemEl.innerHTML = `
+                ${previewContent}
+                <div class="file-info" title="${file.name}">${file.name}</div>
+                <button class="remove-file-btn" title="Remove file">&times;</button>
+            `;
+
+            itemEl.querySelector('.remove-file-btn')!.addEventListener('click', () => {
+                const img = itemEl.querySelector('img');
+                if (img) {
+                    URL.revokeObjectURL(img.src);
+                }
+                this.handleRemoveProjectFile(index);
+            });
+
+            this.filePreviewContainer.appendChild(itemEl);
+        });
     }
 
     private formatInlineMarkdown(text: string): string {
