@@ -8,68 +8,9 @@ import * as api from './api.js';
 import { decodeJwtPayload } from './utils.js';
 import { renderUI } from './ui.js';
 import { renderView } from './views.js';
+import { cacheDOMElements, addEventListeners } from './setup.js';
+import * as handlers from './handlers.js';
 
-const ABOUT_MARKDOWN = `
-# 吹角 (Chuījiǎo) - AI 驱动的智能项目管理工具
-
-**运筹帷幄，跃然纸上。**
-
----
-
-## 📖 项目简介
-
-“吹角”是一款先进的、由 AI 驱动的智能项目管理应用。它旨在将复杂的项目规划流程简化为与智能助理的自然语言对话。您只需描述您的战略目标，AI 即可为您生成一份详尽、结构化、可执行的项目作战地图。
-
-本应用深度集成了 Google 最新的 \`gemini-2.5-pro\` 模型，确保了在项目解析、任务生成、智能问答和报告撰写等各个环节都能提供最顶级的智能体验。
-
-## ✨ 核心功能
-
--   **自然语言项目创建**：输入一段项目描述，AI 将自动生成包含阶段、任务、子任务、依赖关系和时间节点的完整项目计划。
--   **多维项目视图**：
-    -   **纵览视图**：经典的层级列表，清晰展示项目结构。
-    -   **甘特图**：可视化任务排期与时间线，掌控项目节奏。
-    -   **看板**：以任务状态（待办、进行中、已完成）为核心，管理工作流程。
-    -   **行事历**：按日历查看任务的开始与截止日期。
-    -   **工作负载**：分析团队成员在不同时间段的任务分配情况，平衡资源。
-    -   **依赖图**：清晰展示任务之间的前后置依赖关系，识别关键路径。
-    -   **思维导图**：以辐射状结构探索和组织项目思路。
--   **AI 智能助理 (Chat)**：
-    -   **智能问答**：随时提问关于项目的任何问题，AI 将结合上下文给出答案。
-    -   **动态调整**：通过自然语言指令（如“将A任务延后两天”、“完成B任务”）实时修改项目计划。
-    -   **文件辅助**：上传图片或PDF，让AI结合文件内容理解您的指令。
-    -   **联网搜索**：对于通用性问题，AI 将利用 Google 搜索提供更全面的信息。
--   **智能报告生成**：一键生成专业的项目周报或月报，总结进度、分析风险并规划下期工作。
--   **团队协作**：
-    -   通过链接或直接邀请成员加入项目。
-    -   支持管理员、编辑、观察员三种角色权限。
--   **数据管理**：支持项目数据的导入导出（JSON格式），所有项目数据都安全地存储在云端。
--   **快速追加任务**：在主页快速描述新任务，AI 会智能分析并将其添加到最合适的项目位置。
-
-## 🛠️ 技术栈
-
--   **前端**:
-    -   TypeScript
-    -   HTML5 & CSS3 (无框架，原生实现)
-    -   **Google Gemini AI**: \`@google/genai\` SDK
--   **后端**:
-    -   Vercel Serverless Functions
-    -   **数据库**: Vercel Postgres
-    -   **认证**: JWT (JSON Web Tokens)
--   **AI 模型**:
-    -   所有 AI 功能均由 \`gemini-2.5-pro\` 模型强力驱动。
-
-## 🚀 如何开始
-
-1.  **注册/登录**：创建您的账户。
-2.  **提供 API 密钥**：在首次使用 AI 功能时，系统会提示您输入自己的 Google Gemini API 密钥。密钥仅存储在您的浏览器本地，保证安全。
-3.  **创建新项目**：在主页输入框中，用自然语言详细描述您的项目目标、主要阶段、关键任务和时间要求。
-4.  **开始生成**：点击“开始生成”，AI 将为您构建完整的项目计划。
-5.  **管理与协作**：载入项目后，您可以在不同视图间切换，使用智能助理调整计划，并邀请团队成员进行协作。
-
----
-
-“吹角”致力于成为您最得力的战略参谋，将繁琐的项目管理工作化繁为简，让您能更专注于目标的实现。
-`;
 
 export class TimelineApp implements ITimelineApp {
   public state: AppState = {
@@ -158,8 +99,8 @@ export class TimelineApp implements ITimelineApp {
 
 
   constructor() {
-    this.cacheDOMElements();
-    this.addEventListeners();
+    cacheDOMElements(this);
+    addEventListeners(this);
     this.loadStateAndInitialize();
   }
   
@@ -267,182 +208,6 @@ export class TimelineApp implements ITimelineApp {
       }
   }
 
-  private cacheDOMElements(): void {
-    this.appContainer = document.getElementById("app-container")!;
-    this.appTopBar = document.getElementById('app-top-bar')!;
-    this.authSection = document.getElementById('auth-section')!;
-    this.loginForm = document.getElementById('login-form') as HTMLFormElement;
-    this.registerForm = document.getElementById('register-form') as HTMLFormElement;
-    this.showLoginBtn = document.getElementById('show-login-btn') as HTMLButtonElement;
-    this.showRegisterBtn = document.getElementById('show-register-btn') as HTMLButtonElement;
-    this.loginErrorEl = document.getElementById('login-error')!;
-    this.registerErrorEl = document.getElementById('register-error')!;
-    this.inputSection = document.getElementById("input-section")!;
-    this.timelineSection = document.getElementById("timeline-section")!;
-    this.projectInput = document.getElementById("project-input") as HTMLTextAreaElement;
-    this.generateBtn = document.getElementById("generate-btn") as HTMLButtonElement;
-    this.timelineContainer = document.getElementById("timeline-container")!;
-    this.projectNameEl = document.getElementById("project-name")!;
-    this.saveStatusEl = document.getElementById('save-status-indicator')!;
-    this.userDisplayEl = document.getElementById('user-display')!;
-    this.aboutBtn = document.getElementById('about-btn') as HTMLButtonElement;
-    this.shareBtn = document.getElementById('share-btn') as HTMLButtonElement;
-    this.clearBtn = document.getElementById("clear-btn") as HTMLButtonElement;
-    this.loadingOverlay = document.getElementById("loading-overlay")!;
-    this.loadingTextEl = document.getElementById("loading-text")!;
-    this.importBtn = document.getElementById("import-btn") as HTMLButtonElement;
-    this.exportBtn = document.getElementById("export-btn") as HTMLButtonElement;
-    this.reportBtnToggle = document.getElementById("report-btn-toggle") as HTMLButtonElement;
-    this.reportDropdown = document.getElementById("report-dropdown") as HTMLElement;
-    this.importFileEl = document.getElementById("import-file") as HTMLInputElement;
-    this.viewSwitcherEl = document.getElementById("view-switcher")!;
-    this.viewSpecificControlsEl = document.getElementById("view-specific-controls");
-    this.filterSortControlsEl = document.getElementById("filter-sort-controls")!;
-    this.historySectionEl = document.getElementById("history-section")!;
-    this.historyListEl = document.getElementById("history-list")!;
-    this.quickAddFormEl = document.getElementById("quick-add-form") as HTMLFormElement;
-    this.quickAddBtn = document.getElementById("quick-add-btn") as HTMLButtonElement;
-    this.chatPanelEl = document.getElementById('chat-panel')!;
-    this.chatBackdropEl = document.getElementById('chat-backdrop')!;
-    this.chatToggleBtn = document.getElementById('chat-toggle-btn') as HTMLButtonElement;
-    this.chatCloseBtn = document.getElementById('chat-close-btn') as HTMLButtonElement;
-    this.chatHistoryEl = document.getElementById('chat-history')!;
-    this.chatFormEl = document.getElementById('chat-form') as HTMLFormElement;
-    this.chatInputEl = document.getElementById('chat-input') as HTMLTextAreaElement;
-    this.chatSendBtn = document.getElementById('chat-send-btn') as HTMLButtonElement;
-    this.chatAttachmentBtn = document.getElementById('chat-attachment-btn') as HTMLButtonElement;
-    this.chatAttachmentInput = document.getElementById('chat-attachment-input') as HTMLInputElement;
-    this.chatAttachmentPreview = document.getElementById('chat-attachment-preview')!;
-    this.apiKeyModalOverlay = document.getElementById('api-key-modal-overlay')!;
-    this.apiKeyForm = document.getElementById('api-key-form') as HTMLFormElement;
-    this.apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement;
-    this.apiKeyErrorEl = document.getElementById('api-key-error')!;
-  }
-
-  private addEventListeners(): void {
-    this.showLoginBtn.addEventListener('click', () => this.handleAuthSwitch('login'));
-    this.showRegisterBtn.addEventListener('click', () => this.handleAuthSwitch('register'));
-    this.loginForm.addEventListener('submit', this.handleLogin.bind(this));
-    this.registerForm.addEventListener('submit', this.handleRegister.bind(this));
-    this.aboutBtn.addEventListener('click', this.showAboutModal.bind(this));
-    this.generateBtn.addEventListener("click", this.handleGenerateClick.bind(this));
-    this.clearBtn.addEventListener("click", this.handleClearClick.bind(this));
-    this.exportBtn.addEventListener("click", this.handleExportClick.bind(this));
-    this.importBtn.addEventListener("click", () => this.importFileEl.click());
-    this.importFileEl.addEventListener("change", this.handleImport.bind(this));
-    this.quickAddFormEl.addEventListener('submit', this.handleQuickAddTask.bind(this));
-    this.shareBtn.addEventListener('click', () => renderUI.showMembersModal(this));
-    this.reportBtnToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.reportDropdown.classList.toggle('hidden');
-    });
-    this.reportDropdown.addEventListener('click', (e) => {
-        const target = e.target as HTMLElement;
-        const button = target.closest('button[data-period]');
-        if (button) {
-            const period = button.getAttribute('data-period') as 'weekly' | 'monthly';
-            this.handleGenerateReportClick(period);
-            this.reportDropdown.classList.add('hidden');
-        }
-    });
-    document.addEventListener('click', (e) => {
-        if (!this.reportBtnToggle.contains(e.target as Node) && !this.reportDropdown.contains(e.target as Node)) {
-            if (!this.reportDropdown.classList.contains('hidden')) {
-                this.reportDropdown.classList.add('hidden');
-            }
-        }
-    });
-    this.chatToggleBtn.addEventListener('click', () => this.toggleChat(true));
-    this.chatCloseBtn.addEventListener('click', () => this.toggleChat(false));
-    this.chatBackdropEl.addEventListener('click', () => this.toggleChat(false));
-    this.chatFormEl.addEventListener('submit', this.handleChatSubmit.bind(this));
-    this.chatInputEl.addEventListener('input', this.autoResizeChatInput.bind(this));
-    this.chatAttachmentBtn.addEventListener('click', () => this.chatAttachmentInput.click());
-    this.chatAttachmentInput.addEventListener('change', this.handleFileAttachmentChange.bind(this));
-    this.chatInputEl.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            this.chatFormEl.requestSubmit();
-        }
-    });
-    this.apiKeyForm.addEventListener('submit', this.handleApiKeySubmit.bind(this));
-  }
-  
-  private handleAuthSwitch(view: 'login' | 'register'): void {
-    this.setState({ authView: view });
-  }
-
-  private async handleLogin(event: Event): Promise<void> {
-    event.preventDefault();
-    this.loginErrorEl.textContent = '';
-    const username = (this.loginForm.querySelector('input[name="username"]') as HTMLInputElement).value;
-    const password = (this.loginForm.querySelector('input[name="password"]') as HTMLInputElement).value;
-    
-    this.setState({ isLoading: true, loadingText: "登录中..." });
-    try {
-        const response = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password }),
-        });
-        const data = await response.json();
-        if (response.ok) {
-            const { token } = data;
-            const payload = decodeJwtPayload(token);
-            if (!payload) throw new Error("Failed to parse token from server.");
-            const currentUser: CurrentUser = {
-                id: payload.userId.toString(),
-                username: payload.username,
-                profile: payload.profile,
-                token: token,
-            };
-            this.setState({ currentUser: currentUser });
-            await this.initializeApp(currentUser);
-        } else {
-            this.loginErrorEl.textContent = data.message || "用户名或密码无效。";
-        }
-    } catch (error) {
-        this.loginErrorEl.textContent = "登录时发生网络错误。";
-        console.error("Login fetch error:", error);
-    } finally {
-        this.setState({ isLoading: false });
-    }
-  }
-
-  private async handleRegister(event: Event): Promise<void> {
-    event.preventDefault();
-    this.registerErrorEl.textContent = '';
-    const username = (this.registerForm.querySelector('input[name="username"]') as HTMLInputElement).value;
-    const password = (this.registerForm.querySelector('input[name="password"]') as HTMLInputElement).value;
-
-    if (username.length < 3 || password.length < 4) {
-        this.registerErrorEl.textContent = "用户名至少3个字符，密码至少4个字符。";
-        return;
-    }
-    
-    this.setState({ isLoading: true, loadingText: "注册中..." });
-    try {
-        const response = await fetch('/api/auth/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password }),
-        });
-        const data = await response.json();
-        if (response.ok) {
-             this.loginForm.querySelector<HTMLInputElement>('input[name="username"]')!.value = username;
-             this.loginForm.querySelector<HTMLInputElement>('input[name="password"]')!.value = password;
-             await this.handleLogin(event);
-        } else {
-            this.registerErrorEl.textContent = data.message || "注册失败。";
-        }
-    } catch (error) {
-        this.registerErrorEl.textContent = "注册时发生网络错误。";
-        console.error("Register fetch error:", error);
-    } finally {
-        this.setState({ isLoading: false });
-    }
-  }
-
   public setState(newState: Partial<AppState>, shouldRender: boolean = true): void {
     const oldUser = this.state.currentUser;
     this.state = { ...this.state, ...newState };
@@ -464,56 +229,6 @@ export class TimelineApp implements ITimelineApp {
         apiKey: this.state.apiKey,
     };
     localStorage.setItem("timelineAppData", JSON.stringify(appData));
-  }
-  
-  private handleClearClick(): void {
-    this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set() });
-  }
-
-  private handleExportClick(): void {
-    if (!this.state.timeline) return;
-    const dataStr = JSON.stringify(this.state.timeline, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${this.state.timeline.项目名称.replace(/\s+/g, '_')}_timeline.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
-  private handleImport(event: Event): void {
-    if (!this.state.currentUser) return;
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            const result = e.target?.result as string;
-            const data = JSON.parse(result);
-            if (data.项目名称 && Array.isArray(data.阶段)) {
-                data.id = `proj-${Date.now()}`;
-                data.ownerId = this.state.currentUser!.id;
-                data.members = [{ userId: this.state.currentUser!.id, role: 'Admin' }];
-                const newProject = this.postProcessTimelineData(data);
-                this.setState({ isLoading: true, loadingText: "正在上传项目..." });
-                const savedProject = await api.createProject(newProject, this.state.currentUser!.token);
-                const newHistory = [...this.state.projectsHistory, savedProject];
-                this.setState({ timeline: savedProject, projectsHistory: newHistory });
-            } else {
-                alert("导入失败。文件格式无效或不兼容。");
-            }
-        } catch (error) {
-            alert("文件读取或上传错误，请检查文件是否损坏或网络连接。");
-            console.error("导入错误：", error);
-        } finally {
-            this.setState({ isLoading: false });
-        }
-    };
-    reader.readAsText(file);
-    (event.target as HTMLInputElement).value = ''; 
   }
 
   private createTimelineSchema() {
@@ -560,81 +275,7 @@ export class TimelineApp implements ITimelineApp {
       const now = new Date().toLocaleString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
       return `请注意：当前日期和时间是 ${now}。请根据此时间解析任何相对时间表述（例如“明天下午”、“下周”）。所有输出的时间都应为“YYYY-MM-DD HH:mm”格式，精确到分钟。`;
   }
-
-  private async handleGenerateClick(): Promise<void> {
-    if (!this.state.apiKey) {
-        renderUI.showApiKeyModal(this, true);
-        alert("请先提供您的 API 密钥。");
-        return;
-    }
-    if (!this.state.currentUser) {
-        alert("请先登录。");
-        return;
-    }
-    const projectDescription = this.projectInput.value.trim();
-    if (!projectDescription) {
-      alert("请先阐明您的战略目标。");
-      return;
-    }
-
-    this.setState({ isLoading: true, loadingText: "排兵布阵，军令生成中..." });
-
-    try {
-      const responseSchema = this.createTimelineSchema();
-      const prompt = `${this.getCurrentDateContext()} 为以下项目描述，创建一份详尽的、分阶段的中文项目计划。计划应包含项目名称、阶段、任务及可嵌套的子任务。每个任务需包含：任务名称、状态（'待办'、'进行中'或'已完成'）、优先级（'高'、'中'或'低'）、详情、开始时间、截止日期（格式均为 YYYY-MM-DD HH:mm）、负责人和备注。如果描述中提到了负责人，请将他们的名字放入“负责人”字段。
-**极其重要**:
-1.  **唯一ID**: 你必须为每一个任务（包括子任务）生成一个在整个项目中唯一的字符串 'id'。
-2.  **依赖关系**: 你必须识别任务间的依赖关系。例如，如果“任务B”必须在“任务A”完成后才能开始，你必须将“任务A”的 'id' 添加到“任务B”的 'dependencies' 数组中。
-3.  **时间解析**: 如果项目描述中提到了任何日期或时间（例如“下周五截止”、“明天下午3点开始”），你必须基于当前时间上下文，将它们解析为精确的日期和时间，并填入相应的“开始时间”和“截止日期”字段。不要将时间信息遗漏在“详情”字段中。
-
-项目描述如下：
----
-${projectDescription}
----`;
-      
-      const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-pro",
-        contents: prompt,
-        config: { responseMimeType: "application/json", responseSchema: responseSchema },
-      });
-      
-      const parsedData = JSON.parse(response.text);
-      const timelineData: 时间轴数据 = {
-        ...parsedData,
-        id: `proj-${Date.now()}`,
-        ownerId: this.state.currentUser.id,
-        members: [{ userId: this.state.currentUser.id, role: 'Admin' }],
-      };
-
-      const processedData = this.postProcessTimelineData(timelineData);
-      
-      this.setState({ isLoading: true, loadingText: '正在保存新项目...'});
-      const savedProject = await api.createProject(processedData, this.state.currentUser.token);
-      const newHistory = [...this.state.projectsHistory, savedProject];
-      this.setState({ timeline: savedProject, projectsHistory: newHistory, currentView: 'vertical', chatHistory: [], isChatOpen: false });
-    } catch (error) {
-      console.error("生成或保存计划时出错：", error);
-      alert("计划生成或保存失败，请稍后重试。");
-    } finally {
-      this.setState({ isLoading: false });
-    }
-  }
   
-  private handleApiKeySubmit(event: Event): void {
-      event.preventDefault();
-      const apiKey = this.apiKeyInput.value.trim();
-      if (!apiKey) {
-          this.apiKeyErrorEl.textContent = 'API 密钥不能为空。';
-          this.apiKeyErrorEl.classList.remove('hidden');
-          return;
-      }
-      this.apiKeyErrorEl.textContent = '';
-      this.apiKeyErrorEl.classList.add('hidden');
-      this.ai = new GoogleGenAI({ apiKey });
-      this.setState({ apiKey });
-      renderUI.showApiKeyModal(this, false);
-  }
-
   public postProcessTimelineData(data: 时间轴数据): 时间轴数据 {
       let taskCounter = 0;
       const assignedIds = new Set<string>();
@@ -818,67 +459,6 @@ ${projectDescription}
             this.setState({ isLoading: false });
         }
     }
-
-    private async handleQuickAddTask(event: Event): Promise<void> {
-        event.preventDefault();
-        if (!this.state.apiKey) {
-            renderUI.showApiKeyModal(this, true);
-            alert("请先提供您的 API 密钥。");
-            return;
-        }
-        const form = event.currentTarget as HTMLFormElement;
-        const projectSelect = form.querySelector('#project-select') as HTMLSelectElement;
-        const taskInput = form.querySelector('#quick-add-input') as HTMLTextAreaElement;
-        const assigneeInput = form.querySelector('#quick-add-assignee') as HTMLInputElement;
-        const deadlineInput = form.querySelector('#quick-add-deadline') as HTMLInputElement;
-        const projectId = projectSelect.value;
-        const taskDescription = taskInput.value.trim();
-        const assignee = assigneeInput.value.trim();
-        const deadline = deadlineInput.value.trim().replace('T', ' ');
-        if (!projectId || !taskDescription) {
-            alert("请选择一个项目并填写任务描述。");
-            return;
-        }
-        const projectToUpdate = this.state.projectsHistory.find(p => p.id === projectId);
-        if (!projectToUpdate) return;
-        this.setState({ isLoading: true, loadingText: "智能分析中，请稍候..." });
-        try {
-            const responseSchema = this.createTimelineSchema();
-            let additionalInfo = '';
-            if (assignee) additionalInfo += `任务的“负责人”应为“${assignee}”。`;
-            if (deadline) additionalInfo += `任务的“截止日期”应为“${deadline}”。`;
-            const prompt = `${this.getCurrentDateContext()} 作为一名智能项目管理助手，请分析以下项目计划JSON。用户想要添加一个新任务，描述如下：“${taskDescription}”。
-${additionalInfo ? `此外，用户还提供了以下信息：${additionalInfo}` : ''}
-你的任务是：
-1.  **智能定位**：判断这个新任务最应该属于哪个阶段（以及哪个内嵌项目，如果适用）。
-2.  **创建任务**：为这个新任务创建一个合理的“任务名称”，并将其“状态”设置为“待办”。你必须为新任务生成一个唯一的 'id'。
-3.  **推断依赖**：分析任务描述，看它是否依赖于计划中已有的其他任务。如果是，请在 'dependencies' 数组中添加相应任务的 'id'。
-4.  **提取信息**：从任务描述中智能提取任务的“详情”、“开始时间”、“截止日期”和“优先级”。你必须将解析出的时间信息放入对应的字段。
-5.  **使用补充信息**：如果用户提供了负责人或截止日期，请优先使用它们。如果描述和补充信息中的截止日期冲突，以补充信息为准。
-6.  **添加任务**：将新创建的任务对象添加到项目计划中正确的位置。
-7.  **返回结果**：返回完整的、更新后的项目计划JSON。
----
-当前项目计划:
-${JSON.stringify(projectToUpdate)}
----`;
-            const response = await this.ai.models.generateContent({
-                model: "gemini-2.5-pro",
-                contents: prompt,
-                config: { responseMimeType: "application/json", responseSchema },
-            });
-            const parsedData = JSON.parse(response.text);
-            const updatedTimeline = this.postProcessTimelineData({ ...projectToUpdate, ...parsedData });
-            await this.saveCurrentProject(updatedTimeline);
-            taskInput.value = '';
-            assigneeInput.value = '';
-            deadlineInput.value = '';
-        } catch (error) {
-            console.error("快速追加任务时出错:", error);
-            alert("任务追加失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
-        } finally {
-            this.setState({ isLoading: false });
-        }
-    }
   
     public async handleUpdateField(indices: TopLevelIndices, field: string, value: string): Promise<void> {
         if (!this.state.timeline) return;
@@ -899,83 +479,6 @@ ${JSON.stringify(projectToUpdate)}
     public showEditModal(indices: Indices, task: 任务): void {
         renderUI.showEditModal(this, indices, task);
     }
-
-    private async handleGenerateReportClick(period: 'weekly' | 'monthly'): Promise<void> {
-        if (!this.state.apiKey) {
-            renderUI.showApiKeyModal(this, true);
-            alert("请先提供您的 API 密钥。");
-            return;
-        }
-        renderUI.showReportModal(this, true);
-        try {
-            const currentDate = new Date().toLocaleDateString('en-CA');
-            const periodText = period === 'weekly' ? '过去7天' : '过去30天';
-            const nextPeriodText = period === 'weekly' ? '未来7天' : '未来30天';
-            const reportTitle = period === 'weekly' ? '周报' : '月报';
-            const prompt = `As a professional project manager AI, analyze the following project plan JSON. Based on the data, generate a concise and structured project status report in Chinese. The report is a **${reportTitle}** reflecting activities in the **${periodText}**. The current date is ${currentDate}.
-The report must follow this structure, including the markdown-style headers:
-### 1. 本期总体进度 (Overall Progress This Period)
-Briefly summarize the project's health. Focus on progress made in the **${periodText}**. Mention key milestones achieved or shifts in timeline.
-### 2. 本期关键成果 (Key Accomplishments This Period)
-List important tasks that were marked as '已完成' during the **${periodText}**.
-### 3. 延期、阻碍与风险 (Delays, Obstacles & Risks)
-Identify any tasks that are past their '截止日期' but not yet '已完成'. Based on task descriptions, comments, and statuses, infer and briefly state the potential **reasons for the delay**. Highlight any **obstacles** encountered during this period and potential upcoming **risks** that might impede future progress.
-### 4. 下期工作计划 (Next Period's Plan)
-List the key tasks that are scheduled to start or are due within the **${nextPeriodText}**.
-Here is the project data:
----
-${JSON.stringify(this.state.timeline, null, 2)}
----
-Provide the report in a clean, readable format suitable for copying into an email or document. Use markdown for headers.`;
-
-            const response = await this.ai.models.generateContent({
-                model: "gemini-2.5-pro",
-                contents: prompt,
-            });
-            renderUI.showReportModal(this, false, response.text);
-        } catch (error) {
-            console.error("生成报告时出错:", error);
-            renderUI.showReportModal(this, false, "抱歉，生成报告时发生错误。这可能是由于 API 密钥无效或网络问题导致，请稍后重试。");
-        }
-    }
-
-    private toggleChat(open: boolean): void {
-        this.setState({ isChatOpen: open }, false);
-        this.chatPanelEl.classList.toggle('open', open);
-        this.chatBackdropEl.classList.toggle('hidden', !open);
-        if (open) this.chatInputEl.focus();
-    }
-
-    private autoResizeChatInput(): void {
-        this.chatInputEl.style.height = 'auto';
-        this.chatInputEl.style.height = `${this.chatInputEl.scrollHeight}px`;
-    }
-    
-    private async handleChatSubmit(e: Event): Promise<void> {
-        e.preventDefault();
-        const userInput = this.chatInputEl.value.trim();
-        const attachment = this.state.chatAttachment;
-        if (!userInput && !attachment) return;
-
-        this.chatInputEl.value = '';
-        this.autoResizeChatInput();
-
-        const newUserMessage: ChatMessage = {
-            role: 'user',
-            text: userInput,
-            attachment: attachment ? { dataUrl: attachment.dataUrl, mimeType: attachment.mimeType } : undefined
-        };
-        
-        const newHistory = [...this.state.chatHistory, newUserMessage];
-        this.setState({ 
-            isChatLoading: true, 
-            lastUserMessage: newUserMessage, 
-            chatHistory: newHistory,
-            chatAttachment: null 
-        });
-        
-        await this.submitChat(newUserMessage);
-    }
     
     public async handleRegenerateClick(): Promise<void> {
         const lastUserMessage = this.state.lastUserMessage;
@@ -984,123 +487,10 @@ Provide the report in a clean, readable format suitable for copying into an emai
         const historyWithoutLastResponse = this.state.chatHistory.filter(m => m.role !== 'model');
         this.setState({ isChatLoading: true, chatHistory: historyWithoutLastResponse });
 
-        await this.submitChat(lastUserMessage);
-    }
-
-    private async submitChat(userMessage: ChatMessage): Promise<void> {
-        if (!this.state.apiKey) {
-            renderUI.showApiKeyModal(this, true);
-            alert("请先提供您的 API 密钥。");
-            return;
-        }
-        if (this.state.isChatLoading) return;
-
-        try {
-            const { text: userInput, attachment } = userMessage;
-            const isQuestion = /^(谁|什么|哪里|何时|为何|如何|是|做|能)\b/i.test(userInput) || userInput.endsWith('？') || userInput.endsWith('?');
-            
-            if (isQuestion && !attachment) { // Simple Q&A, no attachment
-                const response = await this.ai.models.generateContent({
-                    model: "gemini-2.5-pro",
-                    contents: `请根据您的知识和网络搜索结果，用中文回答以下问题。如果问题与提供的项目计划有关，请结合上下文回答。
----
-当前项目计划 (上下文参考):
-${JSON.stringify(this.state.timeline)}
----
-用户问题: "${userInput}"`,
-                    config: { tools: [{ googleSearch: {} }] },
-                });
-                const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-                const sources = groundingChunks?.map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title })) || [];
-                const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: response.text, sources }];
-                this.setState({ chatHistory: finalHistory });
-
-            } else { // It's a command, a question with an attachment, or a statement with an attachment
-                if (!this.canEditProject()) {
-                    const errorHistory = [...this.state.chatHistory, { role: 'model' as const, text: "抱歉，您没有修改此项目的权限。" }];
-                    this.setState({ chatHistory: errorHistory });
-                    return;
-                }
-                const responseSchema = {
-                    type: Type.OBJECT,
-                    properties: {
-                        responseText: { type: Type.STRING, description: "用中文对用户的请求进行友好、确认性的回应。如果无法执行操作，请解释原因。" },
-                        updatedTimeline: this.createTimelineSchema(),
-                    },
-                    required: ["responseText", "updatedTimeline"],
-                };
-
-                const promptText = `${this.getCurrentDateContext()} 作为一名高级项目管理AI助手，请根据用户的自然语言请求${attachment ? "和附加文件" : ""}，智能地修改提供的项目计划JSON。
-**重要原则**: 请在保留原始计划所有结构、ID和未更改内容的基础上，只进行最小化、最精准的修改。不要重新生成或改变与用户请求不相关的任务或ID。
-您的任务是：
-1.  **解析意图**：深入理解用户的请求，这可能包括任务的新增、查询、状态更新（例如，“我做完了方案设计”），日期调整（“把EDC系统交付推迟2天”），甚至是删除（“取消那个市场调研任务”）。
-2.  **精确时间**：当用户提到相对时间（如“推迟2天”、“明天中午12点”），你必须根据当前时间上下文计算出精确的“YYYY-MM-DD HH:mm”格式的时间，并更新相应的“开始时间”或“截止日期”字段。
-3.  **智能操作**：
-    - **更新**: 根据请求修改任务的字段。
-    - **完成**: 当用户表示任务完成时，请将其 '状态' 字段更新为 '已完成'，并设置 '已完成' 字段为 true。如果一个任务的所有子任务都已完成，请考虑将其父任务也标记为 '已完成'。
-    - **删除**: 如果用户要求删除任务，请从计划中移除对应的任务对象。
-    - **查询**: 如果用户只是提问（例如，“EDC系统交付是什么时候？”），请在 responseText 中回答问题，并返回未经修改的原始项目计划。
-4.  **返回结果**：返回一个包含两部分的JSON对象：一个是对用户操作的友好中文确认信息（responseText），另一个是完整更新后的项目计划（updatedTimeline）。请确保整个项目计划被完整返回，而不仅仅是修改的部分。如果无法执行操作，请在responseText中说明原因，并返回原始的updatedTimeline。
----
-当前项目计划:
-${JSON.stringify(this.state.timeline)}
----
-用户请求:
-"${userInput}"
----`;
-                // FIX: Construct the `contents` array in a way that allows TypeScript to infer a union type for multimodal input.
-                const contents = [];
-                if (attachment) {
-                    contents.push({
-                        inlineData: {
-                            mimeType: attachment.mimeType,
-                            data: attachment.dataUrl.split(',')[1]
-                        }
-                    });
-                }
-                contents.push({ text: promptText });
-
-                const response = await this.ai.models.generateContent({
-                    model: "gemini-2.5-pro",
-                    contents: { parts: contents },
-                    config: { responseMimeType: "application/json", responseSchema: responseSchema },
-                });
-
-                const result = JSON.parse(response.text);
-                const updatedTimeline = this.postProcessTimelineData({ ...this.state.timeline, ...result.updatedTimeline });
-                const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText }];
-                await this.saveCurrentProject(updatedTimeline);
-                this.setState({ chatHistory: finalHistory });
-            }
-        } catch (error) {
-            console.error("智能助理出错:", error);
-            const errorHistory = [...this.state.chatHistory, { role: 'model' as const, text: "抱歉，理解您的指令时遇到了些问题，请您换一种方式描述，或者稍后再试。这可能是由于 API 密钥无效或网络问题导致。" }];
-            this.setState({ chatHistory: errorHistory });
-        } finally {
-            this.setState({ isChatLoading: false });
-        }
+        await handlers.submitChat.call(this, lastUserMessage);
     }
     
-    private handleFileAttachmentChange(event: Event): void {
-        const file = (event.target as HTMLInputElement).files?.[0];
-        if (!file) return;
-
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
-        if (!allowedTypes.includes(file.type)) {
-            alert('不支持的文件类型。请上传图片 (JPG, PNG, WEBP) 或 PDF。');
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const dataUrl = e.target?.result as string;
-            this.setState({ chatAttachment: { file, dataUrl, mimeType: file.type } });
-        };
-        reader.readAsDataURL(file);
-        (event.target as HTMLInputElement).value = ''; // Reset input
-    }
-    
-    private handleRemoveAttachment(): void {
+    public handleRemoveAttachment(): void {
         this.setState({ chatAttachment: null });
     }
 
@@ -1163,11 +553,24 @@ ${JSON.stringify(this.state.timeline)}
 
     private async showAboutModal(): Promise<void> {
         document.getElementById('about-modal-overlay')?.remove();
+
+        let aboutMarkdown = '正在加载...';
+        try {
+            const response = await fetch('./README.md');
+            if (response.ok) {
+                aboutMarkdown = await response.text();
+            } else {
+                aboutMarkdown = '无法加载项目信息。';
+            }
+        } catch (e) {
+            aboutMarkdown = '加载项目信息时出错。';
+        }
+
         const modalOverlay = document.createElement('div');
         modalOverlay.id = 'about-modal-overlay';
         modalOverlay.className = 'modal-overlay';
         
-        const aboutHtml = this.simpleMarkdownToHtml(ABOUT_MARKDOWN);
+        const aboutHtml = this.simpleMarkdownToHtml(aboutMarkdown);
         const contentContainer = `<div class="modal-body about-content">${aboutHtml}</div>`;
         modalOverlay.innerHTML = `<div class="modal-content report-modal"><div class="modal-header"><h2>关于 “吹角”</h2><button class="modal-close-btn close-btn">&times;</button></div>${contentContainer}<div class="modal-footer"><button type="button" class="primary-btn close-btn">关闭</button></div></div>`;
         
