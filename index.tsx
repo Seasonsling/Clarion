@@ -9,6 +9,68 @@ import { decodeJwtPayload } from './utils.js';
 import { renderUI } from './ui.js';
 import { renderView } from './views.js';
 
+const ABOUT_MARKDOWN = `
+# 吹角 (Chuījiǎo) - AI 驱动的智能项目管理工具
+
+**运筹帷幄，跃然纸上。**
+
+---
+
+## 📖 项目简介
+
+“吹角”是一款先进的、由 AI 驱动的智能项目管理应用。它旨在将复杂的项目规划流程简化为与智能助理的自然语言对话。您只需描述您的战略目标，AI 即可为您生成一份详尽、结构化、可执行的项目作战地图。
+
+本应用深度集成了 Google 最新的 \`gemini-2.5-pro\` 模型，确保了在项目解析、任务生成、智能问答和报告撰写等各个环节都能提供最顶级的智能体验。
+
+## ✨ 核心功能
+
+-   **自然语言项目创建**：输入一段项目描述，AI 将自动生成包含阶段、任务、子任务、依赖关系和时间节点的完整项目计划。
+-   **多维项目视图**：
+    -   **纵览视图**：经典的层级列表，清晰展示项目结构。
+    -   **甘特图**：可视化任务排期与时间线，掌控项目节奏。
+    -   **看板**：以任务状态（待办、进行中、已完成）为核心，管理工作流程。
+    -   **行事历**：按日历查看任务的开始与截止日期。
+    -   **工作负载**：分析团队成员在不同时间段的任务分配情况，平衡资源。
+    -   **依赖图**：清晰展示任务之间的前后置依赖关系，识别关键路径。
+    -   **思维导图**：以辐射状结构探索和组织项目思路。
+-   **AI 智能助理 (Chat)**：
+    -   **智能问答**：随时提问关于项目的任何问题，AI 将结合上下文给出答案。
+    -   **动态调整**：通过自然语言指令（如“将A任务延后两天”、“完成B任务”）实时修改项目计划。
+    -   **文件辅助**：上传图片或PDF，让AI结合文件内容理解您的指令。
+    -   **联网搜索**：对于通用性问题，AI 将利用 Google 搜索提供更全面的信息。
+-   **智能报告生成**：一键生成专业的项目周报或月报，总结进度、分析风险并规划下期工作。
+-   **团队协作**：
+    -   通过链接或直接邀请成员加入项目。
+    -   支持管理员、编辑、观察员三种角色权限。
+-   **数据管理**：支持项目数据的导入导出（JSON格式），所有项目数据都安全地存储在云端。
+-   **快速追加任务**：在主页快速描述新任务，AI 会智能分析并将其添加到最合适的项目位置。
+
+## 🛠️ 技术栈
+
+-   **前端**:
+    -   TypeScript
+    -   HTML5 & CSS3 (无框架，原生实现)
+    -   **Google Gemini AI**: \`@google/genai\` SDK
+-   **后端**:
+    -   Vercel Serverless Functions
+    -   **数据库**: Vercel Postgres
+    -   **认证**: JWT (JSON Web Tokens)
+-   **AI 模型**:
+    -   所有 AI 功能均由 \`gemini-2.5-pro\` 模型强力驱动。
+
+## 🚀 如何开始
+
+1.  **注册/登录**：创建您的账户。
+2.  **提供 API 密钥**：在首次使用 AI 功能时，系统会提示您输入自己的 Google Gemini API 密钥。密钥仅存储在您的浏览器本地，保证安全。
+3.  **创建新项目**：在主页输入框中，用自然语言详细描述您的项目目标、主要阶段、关键任务和时间要求。
+4.  **开始生成**：点击“开始生成”，AI 将为您构建完整的项目计划。
+5.  **管理与协作**：载入项目后，您可以在不同视图间切换，使用智能助理调整计划，并邀请团队成员进行协作。
+
+---
+
+“吹角”致力于成为您最得力的战略参谋，将繁琐的项目管理工作化繁为简，让您能更专注于目标的实现。
+`;
+
 export class TimelineApp implements ITimelineApp {
   public state: AppState = {
     currentUser: null,
@@ -61,6 +123,7 @@ export class TimelineApp implements ITimelineApp {
   public projectNameEl: HTMLElement;
   public saveStatusEl: HTMLElement;
   public userDisplayEl: HTMLElement;
+  public aboutBtn: HTMLButtonElement;
   public shareBtn: HTMLButtonElement;
   public clearBtn: HTMLButtonElement;
   public loadingOverlay: HTMLElement;
@@ -222,6 +285,7 @@ export class TimelineApp implements ITimelineApp {
     this.projectNameEl = document.getElementById("project-name")!;
     this.saveStatusEl = document.getElementById('save-status-indicator')!;
     this.userDisplayEl = document.getElementById('user-display')!;
+    this.aboutBtn = document.getElementById('about-btn') as HTMLButtonElement;
     this.shareBtn = document.getElementById('share-btn') as HTMLButtonElement;
     this.clearBtn = document.getElementById("clear-btn") as HTMLButtonElement;
     this.loadingOverlay = document.getElementById("loading-overlay")!;
@@ -260,6 +324,7 @@ export class TimelineApp implements ITimelineApp {
     this.showRegisterBtn.addEventListener('click', () => this.handleAuthSwitch('register'));
     this.loginForm.addEventListener('submit', this.handleLogin.bind(this));
     this.registerForm.addEventListener('submit', this.handleRegister.bind(this));
+    this.aboutBtn.addEventListener('click', this.showAboutModal.bind(this));
     this.generateBtn.addEventListener("click", this.handleGenerateClick.bind(this));
     this.clearBtn.addEventListener("click", this.handleClearClick.bind(this));
     this.exportBtn.addEventListener("click", this.handleExportClick.bind(this));
@@ -1037,6 +1102,82 @@ ${JSON.stringify(this.state.timeline)}
     
     private handleRemoveAttachment(): void {
         this.setState({ chatAttachment: null });
+    }
+
+    private formatInlineMarkdown(text: string): string {
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/`(.*?)`/g, '<code>$1</code>');
+    }
+    
+    private simpleMarkdownToHtml(markdown: string): string {
+        const lines = markdown.split('\n');
+        let html = '';
+        let inList = false;
+    
+        for (const line of lines) {
+            // Headers
+            if (line.startsWith('# ')) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += `<h1>${this.formatInlineMarkdown(line.substring(2))}</h1>`;
+                continue;
+            }
+            if (line.startsWith('## ')) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += `<h2>${this.formatInlineMarkdown(line.substring(3))}</h2>`;
+                continue;
+            }
+            if (line.startsWith('### ')) {
+                if (inList) { html += '</ul>'; inList = false; }
+                html += `<h3>${this.formatInlineMarkdown(line.substring(4))}</h3>`;
+                continue;
+            }
+            // Unordered list
+            if (line.startsWith('- ')) {
+                if (!inList) { html += '<ul>'; inList = true; }
+                html += `<li>${this.formatInlineMarkdown(line.substring(2))}</li>`;
+                continue;
+            }
+            // Close list if line is not a list item anymore
+            if (inList) {
+                html += '</ul>';
+                inList = false;
+            }
+            // Horizontal rule
+            if (line.startsWith('---')) {
+                html += '<hr>';
+                continue;
+            }
+            // Paragraph
+            if (line.trim() !== '') {
+                html += `<p>${this.formatInlineMarkdown(line)}</p>`;
+            }
+        }
+    
+        if (inList) { // Close any open list at the end
+            html += '</ul>';
+        }
+    
+        return html;
+    }
+
+    private async showAboutModal(): Promise<void> {
+        document.getElementById('about-modal-overlay')?.remove();
+        const modalOverlay = document.createElement('div');
+        modalOverlay.id = 'about-modal-overlay';
+        modalOverlay.className = 'modal-overlay';
+        
+        const aboutHtml = this.simpleMarkdownToHtml(ABOUT_MARKDOWN);
+        const contentContainer = `<div class="modal-body about-content">${aboutHtml}</div>`;
+        modalOverlay.innerHTML = `<div class="modal-content report-modal"><div class="modal-header"><h2>关于 “吹角”</h2><button class="modal-close-btn close-btn">&times;</button></div>${contentContainer}<div class="modal-footer"><button type="button" class="primary-btn close-btn">关闭</button></div></div>`;
+        
+        document.body.appendChild(modalOverlay);
+    
+        const close = () => modalOverlay.remove();
+        modalOverlay.querySelectorAll('.close-btn').forEach(btn => btn.addEventListener('click', close));
+        modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) close(); });
+        
+        setTimeout(() => modalOverlay.classList.add('visible'), 10);
     }
 
     public render(): void {
