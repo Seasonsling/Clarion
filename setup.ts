@@ -122,6 +122,9 @@ export function addEventListeners(app: ITimelineApp): void {
         }
     });
 
+    app.projectInput.addEventListener('paste', handlers.handlePaste.bind(app));
+    app.chatInputEl.addEventListener('paste', handlers.handleChatPaste.bind(app));
+
     app.chatToggleBtn.addEventListener('click', () => handlers.toggleChat.call(app, true));
     app.chatCloseBtn.addEventListener('click', () => handlers.toggleChat.call(app, false));
     app.chatBackdropEl.addEventListener('click', () => handlers.toggleChat.call(app, false));

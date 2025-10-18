@@ -93,6 +93,13 @@ export function handleProjectFiles(this: ITimelineApp, files: FileList): void {
     (this as any).renderFilePreviews();
 }
 
+export function handlePaste(this: ITimelineApp, event: ClipboardEvent): void {
+    const files = event.clipboardData?.files;
+    if (files && files.length > 0) {
+        handleProjectFiles.call(this, files);
+    }
+}
+
 export async function handleGenerateClick(this: ITimelineApp): Promise<void> {
     if (!this.state.apiKey) {
         renderUI.showApiKeyModal(this, true);
@@ -467,10 +474,7 @@ ${JSON.stringify(this.state.timeline)}
     }
 }
 
-export function handleFileAttachmentChange(this: ITimelineApp, event: Event): void {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (!file) return;
-
+function setChatAttachmentFromFile(this: ITimelineApp, file: File): void {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
     if (!allowedTypes.includes(file.type)) {
         alert('不支持的文件类型。请上传图片 (JPG, PNG, WEBP) 或 PDF。');
@@ -483,5 +487,24 @@ export function handleFileAttachmentChange(this: ITimelineApp, event: Event): vo
         this.setState({ chatAttachment: { file, dataUrl, mimeType: file.type } });
     };
     reader.readAsDataURL(file);
+}
+
+export function handleFileAttachmentChange(this: ITimelineApp, event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    setChatAttachmentFromFile.call(this, file);
     (event.target as HTMLInputElement).value = ''; // Reset input
+}
+
+export function handleChatPaste(this: ITimelineApp, event: ClipboardEvent): void {
+    const files = event.clipboardData?.files;
+    if (!files || files.length === 0) return;
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+    const validFile = Array.from(files).find(file => allowedTypes.includes(file.type));
+
+    if (validFile) {
+        event.preventDefault(); 
+        setChatAttachmentFromFile.call(this, validFile);
+    }
 }
