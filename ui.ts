@@ -61,19 +61,37 @@ function renderUserDisplay(app: ITimelineApp): void {
 }
 
 function renderSaveStatusIndicator(app: ITimelineApp): void {
-  switch (app.state.saveStatus) {
+  const el = app.saveStatusEl;
+  const status = app.state.saveStatus;
+
+  // Clear any pending fade-out animation if a new status comes in.
+  if ((el as any)._fadeTimeout) {
+    clearTimeout((el as any)._fadeTimeout);
+    (el as any)._fadeTimeout = null;
+  }
+
+  switch (status) {
     case 'saving':
-      app.saveStatusEl.innerHTML = `<div class="spinner"></div> 正在同步...`;
+      el.innerHTML = `<div class="spinner"></div> 正在同步...`;
+      el.style.opacity = '1';
       break;
     case 'saved':
-      app.saveStatusEl.innerHTML = `✓ 已同步至云端`;
+      el.innerHTML = `✓ 已同步至云端`;
+      el.style.opacity = '1';
+
+      // Set a timeout to fade the element out. This does NOT change the app state.
+      (el as any)._fadeTimeout = setTimeout(() => {
+        el.style.opacity = '0';
+      }, 2000); // Fade out after 2 seconds
       break;
     case 'error':
-      app.saveStatusEl.innerHTML = `✗ 同步失败`;
+      el.innerHTML = `✗ 同步失败`;
+      el.style.opacity = '1';
       break;
     case 'idle':
     default:
-      app.saveStatusEl.innerHTML = '';
+      el.innerHTML = '';
+      el.style.opacity = '0';
       break;
   }
 }

@@ -43,6 +43,7 @@ export class TimelineApp implements ITimelineApp {
 
   // DOM Elements (public for UI modules)
   public appContainer: HTMLElement;
+  public appTopBar: HTMLElement;
   public authSection: HTMLElement;
   public loginForm: HTMLFormElement;
   public registerForm: HTMLFormElement;
@@ -200,6 +201,7 @@ export class TimelineApp implements ITimelineApp {
 
   private cacheDOMElements(): void {
     this.appContainer = document.getElementById("app-container")!;
+    this.appTopBar = document.getElementById('app-top-bar')!;
     this.authSection = document.getElementById('auth-section')!;
     this.loginForm = document.getElementById('login-form') as HTMLFormElement;
     this.registerForm = document.getElementById('register-form') as HTMLFormElement;
@@ -711,7 +713,6 @@ ${projectDescription}
         try {
             await api.updateProject(updatedTimeline, this.state.currentUser!.token);
             this.setState({ saveStatus: 'saved' });
-            setTimeout(() => this.setState({ saveStatus: 'idle'}), 2000);
         } catch (error) {
             console.error("Failed to save project:", error);
             this.setState({ saveStatus: 'error' });
@@ -980,8 +981,11 @@ ${JSON.stringify(this.state.timeline)}
         this.loadingTextEl.textContent = this.state.loadingText;
         if (!this.state.currentUser) {
             renderUI.renderAuth(this);
+            this.appTopBar.classList.add('hidden');
             return;
         }
+
+        this.appTopBar.classList.remove('hidden');
         this.authSection.classList.add('hidden');
         this.generateBtn.disabled = this.state.isLoading;
         if (this.generateBtn.querySelector('span')) {
