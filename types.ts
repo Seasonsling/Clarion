@@ -86,6 +86,15 @@ export interface ChatMessage {
         mimeType: string;
     },
     isModification?: boolean;
+    isProposal?: boolean;
+}
+
+export interface TaskDiff {
+  status: 'added' | 'deleted' | 'modified';
+  oldTask?: 任务; // Present for deleted and modified
+  newTask?: 任务; // Present for added and modified
+  changes?: { [key in keyof 任务]?: { from: any, to: any } }; // Present for modified
+  parentPath: string;
 }
 
 export interface AppState {
@@ -94,6 +103,10 @@ export interface AppState {
   projectsHistory: 时间轴数据[];
   timeline: 时间轴数据 | null;
   previousTimelineState: 时间轴数据 | null; // For the undo feature
+  pendingTimeline: {
+    data: 时间轴数据;
+    diff: Map<string, TaskDiff>;
+  } | null;
   isLoading: boolean;
   loadingText: string;
   currentView: ViewType;

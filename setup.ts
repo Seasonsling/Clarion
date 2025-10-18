@@ -139,4 +139,9 @@ export function addEventListeners(app: ITimelineApp): void {
         }
     });
     app.apiKeyForm.addEventListener('submit', handlers.handleApiKeySubmit.bind(app));
+
+    // AI Changes Confirmation Bar Listeners
+    const confirmBar = document.getElementById('ai-changes-confirm-bar')!;
+    confirmBar.querySelector('#ai-accept-btn')!.addEventListener('click', () => (app as any).handleAcceptAiChanges());
+    confirmBar.querySelector('#ai-reject-btn')!.addEventListener('click', () => (app as any).handleRejectAiChanges());
 }

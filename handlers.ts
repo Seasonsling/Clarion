@@ -179,7 +179,7 @@ ${projectDescription || "（无文字描述，请主要参考附加文件）"}
 }
 
 export function handleClearClick(this: ITimelineApp): void {
-    this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null });
+    this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null, pendingTimeline: null });
 }
 
 export function handleExportClick(this: ITimelineApp): void {
@@ -420,9 +420,10 @@ ${JSON.stringify(this.state.timeline)}
                 type: Type.OBJECT,
                 properties: {
                     responseText: { type: Type.STRING, description: "用中文对用户的请求进行友好、确认性的回应。如果无法执行操作，请解释原因。" },
+                    didModify: { type: Type.BOOLEAN, description: "如果你对项目计划进行了任何修改（增、删、改），则设为 true。如果你只是回答问题而未作修改，则设为 false。" },
                     updatedTimeline: (this as any).createTimelineSchema(),
                 },
-                required: ["responseText", "updatedTimeline"],
+                required: ["responseText", "didModify", "updatedTimeline"],
             };
 
             const promptText = `${(this as any).getCurrentDateContext()} 作为一名高级项目管理AI助手，请根据用户的自然语言请求${attachment ? "和附加文件" : ""}，智能地修改提供的项目计划JSON。
@@ -434,8 +435,8 @@ ${JSON.stringify(this.state.timeline)}
     - **更新**: 根据请求修改任务的字段。
     - **完成**: 当用户表示任务完成时，请将其 '状态' 字段更新为 '已完成'，并设置 '已完成' 字段为 true。如果一个任务的所有子任务都已完成，请考虑将其父任务也标记为 '已完成'。
     - **删除**: 如果用户要求删除任务，请从计划中移除对应的任务对象。
-    - **查询**: 如果用户只是提问（例如，“EDC系统交付是什么时候？”），请在 responseText 中回答问题，并返回未经修改的原始项目计划。
-4.  **返回结果**：返回一个包含两部分的JSON对象：一个是对用户操作的友好中文确认信息（responseText），另一个是完整更新后的项目计划（updatedTimeline）。请确保整个项目计划被完整返回，而不仅仅是修改的部分。如果无法执行操作，请在responseText中说明原因，并返回原始的updatedTimeline。
+    - **查询**: 如果用户只是提问（例如，“EDC系统交付是什么时候？”），请在 responseText 中回答问题，将 didModify 设为 false，并返回未经修改的原始项目计划。
+4.  **返回结果**：返回一个包含三部分的JSON对象：一个是对用户操作的友好中文确认信息（responseText），一个布尔值表明你是否修改了计划（didModify），以及完整更新后的项目计划（updatedTimeline）。请确保整个项目计划被完整返回，而不仅仅是修改的部分。
 ---
 当前项目计划:
 ${JSON.stringify(this.state.timeline)}
@@ -461,19 +462,22 @@ ${JSON.stringify(this.state.timeline)}
             });
 
             const result = JSON.parse(response.text);
-            const updatedTimeline = this.postProcessTimelineData({ ...this.state.timeline, ...result.updatedTimeline });
 
-            // Save previous state for undo, before updating.
-            this.setState({ previousTimelineState: this.state.timeline }, false);
-            
-            const finalHistory = [...this.state.chatHistory, { 
-                role: 'model' as const, 
-                text: result.responseText,
-                isModification: true,
-            }];
+            if (result.didModify && result.updatedTimeline) {
+                const updatedTimeline = this.postProcessTimelineData({ ...this.state.timeline, ...result.updatedTimeline });
+                const diff = (this as any).computeTimelineDiff(this.state.timeline!, updatedTimeline);
 
-            await this.saveCurrentProject(updatedTimeline);
-            this.setState({ chatHistory: finalHistory });
+                if (diff.size > 0) {
+                    const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText, isProposal: true }];
+                    this.setState({ pendingTimeline: { data: updatedTimeline, diff }, chatHistory: finalHistory });
+                } else {
+                    const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText }];
+                    this.setState({ chatHistory: finalHistory });
+                }
+            } else {
+                 const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText }];
+                 this.setState({ chatHistory: finalHistory });
+            }
         }
     } catch (error) {
         console.error("智能助理出错:", error);

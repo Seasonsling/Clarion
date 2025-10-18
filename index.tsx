@@ -18,6 +18,8 @@ export class TimelineApp implements ITimelineApp {
     projectsHistory: [],
     timeline: null,
     previousTimelineState: null,
+    // FIX: Initialize pendingTimeline to null to match AppState type
+    pendingTimeline: null,
     isLoading: false,
     loadingText: "项目初始化中...",
     currentView: 'vertical',

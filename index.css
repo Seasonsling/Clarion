@@ -21,6 +21,15 @@
   --workload-medium: var(--priority-medium-color);
   --workload-high: var(--priority-high-color);
   --critical-path-color: #ab47bc; /* Warm Purple/Magenta */
+
+  /* Diff colors */
+  --diff-added-bg: #e6ffed;
+  --diff-added-border: #28a745;
+  --diff-modified-bg: #fffbe6;
+  --diff-modified-border: #ffc107;
+  --diff-deleted-bg: #fff1f0;
+  --diff-deleted-border: #ff4d4f;
+  --diff-field-highlight: #fff3cd;
 }
 
 * {
@@ -369,10 +378,10 @@ textarea#quick-add-input:focus {
 
 .secondary-btn.danger {
     color: var(--danger-color);
+    border-color: var(--danger-color);
 }
 .secondary-btn.danger:hover {
-    border-color: var(--danger-color);
-    background-color: #ff F8f8;
+    background-color: var(--diff-deleted-bg);
 }
 
 .icon {
@@ -504,6 +513,7 @@ textarea#quick-add-input:focus {
     opacity: 0;
     transform: translateY(20px);
     transition: opacity 0.5s ease, transform 0.5s ease;
+    position: relative; /* For positioning the confirm bar */
 }
 
 #timeline-section.visible {
@@ -959,6 +969,33 @@ textarea#quick-add-input:focus {
     border-bottom: 3px solid var(--accent-color);
 }
 
+/* AI Diff Styles */
+.task-item.diff-added {
+  background-color: var(--diff-added-bg);
+  border-left-color: var(--diff-added-border) !important;
+  box-shadow: 0 0 0 1px var(--diff-added-border);
+}
+.task-item.diff-modified {
+  background-color: var(--diff-modified-bg);
+  box-shadow: 0 0 0 1px var(--diff-modified-border);
+}
+.task-item-deleted {
+  padding: 0.5rem 1rem;
+  background-color: var(--diff-deleted-bg);
+  border-left: 4px solid var(--diff-deleted-border);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  font-style: italic;
+}
+.task-item-deleted span {
+  text-decoration: line-through;
+}
+.field-changed {
+    background-color: var(--diff-field-highlight);
+    padding: 1px 4px;
+    border-radius: 4px;
+    box-shadow: 0 0 0 1px var(--diff-modified-border);
+}
 
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(10px); }
@@ -2329,6 +2366,35 @@ input.inline-edit:focus {
 @keyframes typing-bounce {
   0%, 80%, 100% { transform: scale(0); }
   40% { transform: scale(1.0); }
+}
+
+/* AI Changes Confirmation Bar */
+#ai-changes-confirm-bar {
+  position: sticky;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: fit-content;
+  max-width: 90%;
+  background-color: var(--text-primary);
+  color: var(--primary-color);
+  padding: 1rem 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  z-index: 1050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  animation: fade-in 0.3s ease;
+}
+#ai-changes-confirm-bar p {
+  font-weight: 600;
+  margin: 0;
+}
+#ai-changes-confirm-bar .button-group {
+  gap: 0.75rem;
 }
 
 
