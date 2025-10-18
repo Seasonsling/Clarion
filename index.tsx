@@ -15,7 +15,7 @@ export class TimelineApp implements ITimelineApp {
     projectsHistory: [],
     timeline: null,
     isLoading: false,
-    loadingText: "排兵布阵，军令生成中...",
+    loadingText: "项目初始化中...",
     currentView: 'vertical',
     authView: 'login',
     calendarDate: new Date(),
