@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { sql } from '@vercel/postgres';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { ensureSchema } from '../_lib/db';
 
 export default async function handler(
   req: VercelRequest,
@@ -19,6 +20,8 @@ export default async function handler(
   }
 
   try {
+    await ensureSchema(); // Ensure DB tables exist
+
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ message: 'Username and password are required' });

@@ -4,12 +4,8 @@ import type { ChangeOperation, 时间轴数据 } from "./types";
 export class GeminiService {
   ai: GoogleGenAI;
 
-  constructor(apiKey: string) {
-    this.ai = new GoogleGenAI({ apiKey });
-  }
-
-  updateApiKey(apiKey: string) {
-    this.ai = new GoogleGenAI({ apiKey });
+  constructor() {
+    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
   }
 
   private createTimelineSchema() {

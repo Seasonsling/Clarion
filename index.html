@@ -24,7 +24,7 @@
 }
 </script>
 </head>
-  <body>
+  <body class="logged-out">
     <main id="app-container">
       <div class="main-header">
         <header class="app-header">
@@ -178,23 +178,5 @@
         <p></p>
       </footer>
     </main>
-    <div id="api-key-modal-overlay" class="modal-overlay hidden">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>请输入您的 Gemini API 密钥</h2>
-        </div>
-        <form id="api-key-form" class="modal-form">
-          <p>为了使用 AI 功能，您需要提供自己的 Google Gemini API 密钥。此密钥将仅存储在您的浏览器中。</p>
-          <div class="form-group full-width">
-            <label for="api-key-input">API 密钥</label>
-            <input type="password" id="api-key-input" required placeholder="在此处粘贴您的密钥">
-          </div>
-          <p id="api-key-error" class="error-message hidden"></p>
-          <div class="modal-footer">
-            <button type="submit" class="primary-btn">保存密钥</button>
-          </div>
-        </form>
-      </div>
-    </div>
   </body>
 </html>

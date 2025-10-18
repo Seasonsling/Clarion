@@ -125,14 +125,9 @@ export class Renderer {
                   <span>欢迎, <strong>${this.app.state.currentUser.profile.displayName}</strong></span>
                 </div>
                 <div class="user-actions">
-                  <button id="api-key-change-btn" class="secondary-btn">API 密钥</button>
                   <button id="logout-btn" class="secondary-btn">登出</button>
                 </div>
             `;
-            this.app.userDisplayEl.querySelector('#api-key-change-btn')!.addEventListener('click', () => {
-                this.app.apiKeyInput.value = this.app.state.apiKey || '';
-                this.showApiKeyModal(true);
-            });
             this.app.userDisplayEl.querySelector('#logout-btn')!.addEventListener('click', () => {
                 this.app.setState({ currentUser: null, timeline: null, projectsHistory: [], allUsers: [] });
             });
@@ -467,16 +462,6 @@ export class Renderer {
     }
 
     // --- MODALS ---
-    showApiKeyModal(show: boolean): void {
-        this.app.apiKeyErrorEl.classList.add('hidden');
-        this.app.apiKeyErrorEl.textContent = '';
-        this.app.apiKeyModalOverlay.classList.toggle('hidden', !show);
-        this.app.apiKeyModalOverlay.classList.toggle('visible', show);
-        if (show) {
-            this.app.apiKeyInput.focus();
-        }
-    }
-    
     showEditModal(indices: Indices, task: 任务): void {
         let existingModal = document.getElementById('edit-modal-overlay');
         if (existingModal) existingModal.remove();

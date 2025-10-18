@@ -130,7 +130,6 @@ export interface AppState {
   mindMapState: {
     collapsedNodes: Set<string>;
   };
-  apiKey: string | null;
   saveStatus: 'idle' | 'saving' | 'saved' | 'error';
   collapsedItems: Set<string>; // For vertical view
   chatAttachment: { file: File, data: string } | null;

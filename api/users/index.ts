@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { sql } from '@vercel/postgres';
 import { getUserIdFromRequest } from '../_lib/auth';
+import { ensureSchema } from '../_lib/db';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -13,6 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    await ensureSchema(); // Ensure DB tables exist
     const { rows } = await sql`
       SELECT id, username, display_name, avatar_url, color
       FROM users;
