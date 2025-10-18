@@ -236,8 +236,8 @@ class TimelineApp {
     
     if (token) {
         try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            if (payload.exp * 1000 > Date.now()) {
+            const payload = this.decodeJwtPayload(token);
+            if (payload && payload.exp * 1000 > Date.now()) {
                 const currentUser: CurrentUser = {
                     id: payload.userId.toString(),
                     username: payload.username,
@@ -530,6 +530,24 @@ class TimelineApp {
   }
   
   // --- AUTH & USER MGMT ---
+  private decodeJwtPayload(token: string): any {
+    try {
+        const base64Url = token.split('.')[1];
+        if (!base64Url) return null;
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+            atob(base64)
+                .split('')
+                .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                .join('')
+        );
+        return JSON.parse(jsonPayload);
+    } catch (e) {
+        console.error("Failed to decode JWT payload:", e);
+        return null;
+    }
+  }
+
   private handleAuthSwitch(view: 'login' | 'register'): void {
     this.setState({ authView: view });
   }
@@ -553,7 +571,10 @@ class TimelineApp {
         const data = await response.json();
         if (response.ok) {
             const { token } = data;
-            const payload = JSON.parse(atob(token.split('.')[1]));
+            const payload = this.decodeJwtPayload(token);
+            if (!payload) {
+                throw new Error("Failed to parse token from server.");
+            }
             const currentUser: CurrentUser = {
                 id: payload.userId.toString(),
                 username: payload.username,
