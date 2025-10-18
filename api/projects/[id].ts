@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { sql } from '@vercel/postgres';
 import { getUserIdFromRequest } from '../_lib/auth';
-import { ensureSchema } from '../_lib/db';
 
 async function handlePut(req: VercelRequest, res: VercelResponse) {
   const userId = getUserIdFromRequest(req);
@@ -17,8 +16,6 @@ async function handlePut(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    await ensureSchema(); // Ensure DB tables exist
-
     // Authorization check: User must be an Admin or Editor
     const { rows: memberRows } = await sql`
         SELECT role FROM project_members 
@@ -68,8 +65,6 @@ async function handleDelete(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    await ensureSchema(); // Ensure DB tables exist
-
     // Authorization check: User must be the owner
     const { rows } = await sql`SELECT owner_id FROM projects WHERE id = ${projectId};`;
     if (rows.length === 0 || rows[0].owner_id !== userId) {

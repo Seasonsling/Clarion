@@ -1,5 +1,3 @@
-
-
 import { GeminiService } from './gemini';
 import { Renderer } from './renderer';
 import * as api from './api';
@@ -31,6 +29,7 @@ export class TimelineApp {
     mindMapState: {
         collapsedNodes: new Set<string>(),
     },
+    apiKey: null,
     saveStatus: 'idle',
     collapsedItems: new Set<string>(),
     chatAttachment: null,
@@ -88,51 +87,63 @@ export class TimelineApp {
   public chatAttachBtn: HTMLButtonElement;
   public chatFileInput: HTMLInputElement;
   public chatAttachmentPreviewEl: HTMLElement;
+  // API Key Modal Elements
+  public apiKeyModalOverlay: HTMLElement;
+  public apiKeyForm: HTMLFormElement;
+  public apiKeyInput: HTMLInputElement;
+  public apiKeyErrorEl: HTMLElement;
 
 
   constructor() {
     this.cacheDOMElements();
     this.renderer = new Renderer(this);
-    this.ai = new GeminiService();
+    this.ai = new GeminiService(this.state.apiKey || '');
     this.addEventListeners();
     this.loadStateAndInitialize();
   }
   
   private async loadStateAndInitialize(): Promise<void> {
+    const savedDataJSON = localStorage.getItem("timelineAppData");
     let token: string | null = null;
-    let validUser: CurrentUser | null = null;
-  
-    try {
-        const savedDataJSON = localStorage.getItem("timelineAppData");
-        if (savedDataJSON) {
+    let apiKey: string | null = null;
+    
+    if (savedDataJSON) {
+        try {
             const savedData = JSON.parse(savedDataJSON);
             token = savedData.authToken || null;
+            apiKey = savedData.apiKey || null;
+        } catch(e) {
+            console.error("Failed to parse saved data, clearing.", e);
+            localStorage.removeItem("timelineAppData");
         }
-    } catch (e) {
-        console.warn("Could not load data from localStorage. Proceeding as logged out.", e);
     }
+    
+    this.state.apiKey = apiKey;
+    this.ai.updateApiKey(this.state.apiKey || '');
     
     if (token) {
         try {
             const payload = JSON.parse(atob(token.split('.')[1]));
             if (payload.exp * 1000 > Date.now()) {
-                validUser = {
+                const currentUser: CurrentUser = {
                     id: payload.userId.toString(),
                     username: payload.username,
                     profile: payload.profile,
                     token: token,
                 };
+                // Set current user synchronously to avoid UI flicker
+                this.state.currentUser = currentUser;
+                this.render(); // Render with user logged in
+                await this.initializeApp(currentUser); // Then fetch data
+            } else {
+                 this.setState({ currentUser: null });
             }
         } catch (e) {
-            console.error("Invalid or expired token found in storage.", e);
+            console.error("Invalid token found:", e);
+            this.setState({ currentUser: null });
         }
-    }
-
-    if (validUser) {
-        this.setState({ currentUser: validUser }, false); 
-        await this.initializeApp(validUser);
     } else {
-        this.setState({ currentUser: null });
+        this.render();
     }
   }
   
@@ -144,10 +155,11 @@ export class TimelineApp {
         api.fetchAllUsers(user.token),
       ]);
       this.setState({ projectsHistory: projects, allUsers: allUsers });
-      this.handleUrlInvitation(); 
+      this.handleUrlInvitation(); // Check for invites after data is loaded
     } catch (error) {
       console.error('Initialization failed:', error);
       alert('无法从云端同步您的数据，请尝试重新登录。');
+      // Log out the user if the token is invalid or network fails
       this.setState({ currentUser: null });
     } finally {
       this.setState({ isLoading: false });
@@ -159,6 +171,7 @@ export class TimelineApp {
       const projectId = urlParams.get('projectId');
       
       if (projectId && this.state.currentUser) {
+          // Clean up URL immediately
           window.history.replaceState({}, document.title, window.location.pathname);
           await this.joinProject(projectId, this.state.currentUser.id);
       }
@@ -174,7 +187,7 @@ export class TimelineApp {
       const isAlreadyMember = project.members.some(m => m.userId === userId);
 
       if (!isAlreadyMember) {
-          const newMember: ProjectMember = { userId: userId, role: 'Viewer' }; 
+          const newMember: ProjectMember = { userId: userId, role: 'Viewer' }; // Default role
           project.members.push(newMember);
           
           this.setState({ isLoading: true, loadingText: "正在加入项目..."});
@@ -182,16 +195,18 @@ export class TimelineApp {
             await this.saveCurrentProject(project);
             alert(`成功加入项目 "${project.项目名称}"！您的默认角色是“观察员”。`);
             this.setState({
-                timeline: project,
+                timeline: project, // Automatically load the project
                 currentView: 'vertical'
             });
           } catch(e) {
              alert("加入项目失败，请稍后重试。");
+             // Revert local change if save fails
              project.members.pop();
           } finally {
             this.setState({ isLoading: false });
           }
       } else {
+          // If already a member, just load the project
           this.setState({ timeline: project, currentView: 'vertical' });
       }
   }
@@ -221,13 +236,13 @@ export class TimelineApp {
     this.loadingTextEl = document.getElementById("loading-text")!;
     this.importBtn = document.getElementById("import-btn") as HTMLButtonElement;
     this.exportBtn = document.getElementById("export-btn") as HTMLButtonElement;
+    this.reportBtnToggle = document.getElementById("report-btn-toggle") as HTMLButtonElement;
+    this.reportDropdown = document.getElementById("report-dropdown") as HTMLElement;
     this.importFileEl = document.getElementById("import-file") as HTMLInputElement;
     this.viewSwitcherEl = document.getElementById("view-switcher")!;
     this.viewSpecificControlsEl = document.getElementById("view-specific-controls");
     this.filterSortControlsEl = document.getElementById("filter-sort-controls")!;
-    this.reportBtnToggle = document.getElementById("report-btn-toggle") as HTMLButtonElement;
-    this.reportDropdown = document.getElementById("report-dropdown") as HTMLElement;
-    // Home Screen Elements
+    // Home Screen
     this.historySectionEl = document.getElementById("history-section")!;
     this.historyListEl = document.getElementById("history-list")!;
     this.quickAddFormEl = document.getElementById("quick-add-form") as HTMLFormElement;
@@ -244,6 +259,11 @@ export class TimelineApp {
     this.chatAttachBtn = document.getElementById('chat-attach-btn') as HTMLButtonElement;
     this.chatFileInput = document.getElementById('chat-file-input') as HTMLInputElement;
     this.chatAttachmentPreviewEl = document.getElementById('chat-attachment-preview')!;
+    // API Key Modal
+    this.apiKeyModalOverlay = document.getElementById('api-key-modal-overlay')!;
+    this.apiKeyForm = document.getElementById('api-key-form') as HTMLFormElement;
+    this.apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement;
+    this.apiKeyErrorEl = document.getElementById('api-key-error')!;
   }
 
   private addEventListeners(): void {
@@ -299,6 +319,9 @@ export class TimelineApp {
     });
     this.chatAttachBtn.addEventListener('click', () => this.chatFileInput.click());
     this.chatFileInput.addEventListener('change', this.handleFileSelect.bind(this));
+
+    // API Key Modal Listener
+    this.apiKeyForm.addEventListener('submit', this.handleApiKeySubmit.bind(this));
   }
 
   // --- AUTH & USER MGMT ---
@@ -307,8 +330,10 @@ export class TimelineApp {
   }
 
   private async _performLoginAndInitialize(username, password) {
+    // 1. Set global loading state
     this.setState({ isLoading: true, loadingText: "登录中..." });
     
+    // 2. Perform login API call
     const loginResponse = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -319,6 +344,7 @@ export class TimelineApp {
         throw new Error(loginData.message || "用户名或密码无效。");
     }
     
+    // 3. Create user object
     const { token } = loginData;
     const payload = JSON.parse(atob(token.split('.')[1]));
     const currentUser: CurrentUser = {
@@ -328,12 +354,14 @@ export class TimelineApp {
         token: token,
     };
 
+    // 4. Fetch initial data
     this.setState({ loadingText: '正在同步您的云端数据...' });
     const [projects, allUsers] = await Promise.all([
         api.fetchProjects(currentUser.token),
         api.fetchAllUsers(currentUser.token),
     ]);
     
+    // 5. Set final state and turn off loading
     this.setState({
         currentUser: currentUser,
         projectsHistory: projects,
@@ -396,39 +424,31 @@ export class TimelineApp {
 
   public setState(newState: Partial<AppState>, shouldRender: boolean = true): void {
     const oldUser = this.state.currentUser;
-
-    if (newState.currentUser !== undefined && newState.currentUser !== oldUser) {
-        if (newState.currentUser) {
-            document.body.classList.add('logged-in');
-            document.body.classList.remove('logged-out');
-        } else {
-            document.body.classList.remove('logged-in');
-            document.body.classList.add('logged-out');
-        }
-    }
+    const oldApiKey = this.state.apiKey;
 
     this.state = { ...this.state, ...newState };
     
+    if (newState.apiKey !== undefined && newState.apiKey !== oldApiKey) {
+        this.ai.updateApiKey(newState.apiKey || '');
+    }
+
     if (shouldRender) {
       this.render();
     }
     
-    if (newState.currentUser !== undefined) {
-      if ((newState.currentUser && !oldUser) || (!newState.currentUser && oldUser)) {
+    if (newState.currentUser !== undefined || newState.apiKey !== undefined) {
+      if ((newState.currentUser && !oldUser) || (!newState.currentUser && oldUser) || (newState.apiKey !== this.state.apiKey)) {
         this.saveState();
       }
     }
   }
 
   private saveState(): void {
-    try {
-        const appData = {
-            authToken: this.state.currentUser?.token,
-        };
-        localStorage.setItem("timelineAppData", JSON.stringify(appData));
-    } catch (e) {
-        console.warn("Could not save state to localStorage. This might happen in private browsing mode.", e);
-    }
+    const appData = {
+        authToken: this.state.currentUser?.token,
+        apiKey: this.state.apiKey,
+    };
+    localStorage.setItem("timelineAppData", JSON.stringify(appData));
   }
   
   private handleClearClick(): void {
@@ -484,6 +504,11 @@ export class TimelineApp {
   }
 
   private async handleGenerateClick(): Promise<void> {
+    if (!this.state.apiKey) {
+        this.renderer.showApiKeyModal(true);
+        alert("请先提供您的 API 密钥。");
+        return;
+    }
     if (!this.state.currentUser) {
         alert("请先登录。");
         return;
@@ -520,6 +545,21 @@ export class TimelineApp {
     }
   }
   
+  public handleApiKeySubmit(event: Event): void {
+      event.preventDefault();
+      const apiKey = this.apiKeyInput.value.trim();
+      if (!apiKey) {
+          this.apiKeyErrorEl.textContent = 'API 密钥不能为空。';
+          this.apiKeyErrorEl.classList.remove('hidden');
+          return;
+      }
+      this.apiKeyErrorEl.textContent = '';
+      this.apiKeyErrorEl.classList.add('hidden');
+      
+      this.setState({ apiKey });
+      this.renderer.showApiKeyModal(false);
+  }
+
   private postProcessTimelineData(data: 时间轴数据): 时间轴数据 {
       let taskCounter = 0;
       const assignedIds = new Set<string>();
@@ -754,6 +794,11 @@ export class TimelineApp {
 
     public async handleQuickAddTask(event: Event): Promise<void> {
         event.preventDefault();
+        if (!this.state.apiKey) {
+            this.renderer.showApiKeyModal(true);
+            alert("请先提供您的 API 密钥。");
+            return;
+        }
         if (!this.state.currentUser) return;
         const form = event.currentTarget as HTMLFormElement;
         const projectSelect = form.querySelector('#project-select') as HTMLSelectElement;
@@ -805,6 +850,11 @@ export class TimelineApp {
   
     // --- Report Methods ---
     private async handleGenerateReportClick(period: 'weekly' | 'monthly'): Promise<void> {
+        if (!this.state.apiKey) {
+            this.renderer.showApiKeyModal(true);
+            alert("请先提供您的 API 密钥。");
+            return;
+        }
         if (!this.state.timeline) return;
         this.renderer.showReportModal(true); // Show loading state
 
@@ -923,6 +973,11 @@ export class TimelineApp {
     }
 
     private async submitChat(userInput: string, attachment: { file: File, data: string } | null): Promise<void> {
+        if (!this.state.apiKey) {
+            this.renderer.showApiKeyModal(true);
+            alert("请先提供您的 API 密钥。");
+            return;
+        }
         if (this.state.isChatLoading) return;
         
         const attachmentData = attachment ? { name: attachment.file.name, type: attachment.file.type, data: attachment.data } : undefined;

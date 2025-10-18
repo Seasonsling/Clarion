@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { sql } from '@vercel/postgres';
 import { getUserIdFromRequest } from '../_lib/auth';
-import { ensureSchema } from '../_lib/db';
 
 async function handleGet(req: VercelRequest, res: VercelResponse) {
   const userId = getUserIdFromRequest(req);
@@ -10,7 +9,6 @@ async function handleGet(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    await ensureSchema(); // Ensure DB tables exist
     const { rows } = await sql`
       SELECT p.project_data FROM projects p
       JOIN project_members pm ON p.id = pm.project_id
@@ -42,7 +40,6 @@ async function handlePost(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        await ensureSchema(); // Ensure DB tables exist
         await sql.query('BEGIN');
 
         await sql`
