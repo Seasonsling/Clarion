@@ -84,7 +84,8 @@ export interface ChatMessage {
     attachment?: {
         dataUrl: string;
         mimeType: string;
-    }
+    },
+    isModification?: boolean;
 }
 
 export interface AppState {
@@ -92,6 +93,7 @@ export interface AppState {
   allUsers: User[]; 
   projectsHistory: 时间轴数据[];
   timeline: 时间轴数据 | null;
+  previousTimelineState: 时间轴数据 | null; // For the undo feature
   isLoading: boolean;
   loadingText: string;
   currentView: ViewType;

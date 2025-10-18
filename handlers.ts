@@ -179,7 +179,7 @@ ${projectDescription || "（无文字描述，请主要参考附加文件）"}
 }
 
 export function handleClearClick(this: ITimelineApp): void {
-    this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set() });
+    this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null });
 }
 
 export function handleExportClick(this: ITimelineApp): void {
@@ -230,6 +230,7 @@ export function handleImport(this: ITimelineApp, event: Event): void {
 
 export async function handleQuickAddTask(this: ITimelineApp, event: Event): Promise<void> {
     event.preventDefault();
+    this.clearUndoState();
     if (!this.state.apiKey) {
         renderUI.showApiKeyModal(this, true);
         alert("请先提供您的 API 密钥。");
@@ -461,7 +462,16 @@ ${JSON.stringify(this.state.timeline)}
 
             const result = JSON.parse(response.text);
             const updatedTimeline = this.postProcessTimelineData({ ...this.state.timeline, ...result.updatedTimeline });
-            const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText }];
+
+            // Save previous state for undo, before updating.
+            this.setState({ previousTimelineState: this.state.timeline }, false);
+            
+            const finalHistory = [...this.state.chatHistory, { 
+                role: 'model' as const, 
+                text: result.responseText,
+                isModification: true,
+            }];
+
             await this.saveCurrentProject(updatedTimeline);
             this.setState({ chatHistory: finalHistory });
         }

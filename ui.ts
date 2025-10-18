@@ -143,7 +143,7 @@ function renderHomeScreen(app: ITimelineApp): void {
 
 function renderChat(app: ITimelineApp): void {
     app.chatHistoryEl.innerHTML = '';
-    app.state.chatHistory.forEach(msg => {
+    app.state.chatHistory.forEach((msg, index) => {
         const msgEl = document.createElement('div');
         msgEl.className = `chat-message-container`;
         
@@ -190,9 +190,18 @@ function renderChat(app: ITimelineApp): void {
             regenBtn.className = 'icon-btn';
             regenBtn.title = '重新生成';
             regenBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>`;
-            regenBtn.onclick = () => app.handleRegenerateClick();
+            regenBtn.onclick = () => app.handleRegenerateClick(index);
             actions.appendChild(copyBtn);
             actions.appendChild(regenBtn);
+            
+            if (msg.isModification && index === app.state.chatHistory.length - 1 && app.state.previousTimelineState) {
+                const undoBtn = document.createElement('button');
+                undoBtn.className = 'chat-action-btn';
+                undoBtn.textContent = '撤销更改';
+                undoBtn.onclick = () => app.handleUndo();
+                actions.appendChild(undoBtn);
+            }
+            
             msgEl.appendChild(actions);
         }
         app.chatHistoryEl.appendChild(msgEl);
@@ -396,11 +405,27 @@ function showEditModal(app: ITimelineApp, indices: Indices, task: 任务): void 
     modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) close(); });
     form.addEventListener('submit', (e) => {
         e.preventDefault();
-        const selectedDependencies = Array.from((form.querySelector('#dependencies') as HTMLSelectElement).selectedOptions).map(o => o.value);
-        const selectedAssignees = Array.from((form.querySelector('#assignee') as HTMLSelectElement).selectedOptions).map(o => o.value);
-        const otherAssignees = (form.querySelector('#otherAssignees') as HTMLInputElement).value.split(',').map(n => n.trim()).filter(Boolean);
+        
+        const getElValue = (selector: string): string => (form.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value;
+        const getMultiSelectValues = (selector: string): string[] => Array.from((form.querySelector(selector) as HTMLSelectElement).selectedOptions).map(o => o.value);
+
+        const selectedAssignees = getMultiSelectValues('#assignee');
+        const otherAssignees = getElValue('#otherAssignees').split(',').map(n => n.trim()).filter(Boolean);
         const allAssignees = [...new Set([...selectedAssignees, ...otherAssignees])];
-        const updatedTask: 任务 = { ...task, 任务名称: (form.querySelector('#taskName') as HTMLInputElement).value, 详情: (form.querySelector('#details') as HTMLTextAreaElement).value, 状态: (form.querySelector('#status') as HTMLSelectElement).value as any, 优先级: (form.querySelector('#priority') as HTMLSelectElement).value as any, 负责人Ids: allAssignees, 开始时间: formatFromDateTimeLocalValue((form.querySelector('#startTime') as HTMLInputElement).value), 截止日期: formatFromDateTimeLocalValue((form.querySelector('#deadline') as HTMLInputElement).value), 备注: (form.querySelector('#notes') as HTMLTextAreaElement).value, dependencies: selectedDependencies };
+
+        const updatedTask: 任务 = {
+            ...task,
+            任务名称: getElValue('#taskName'),
+            详情: getElValue('#details'),
+            状态: getElValue('#status') as any,
+            优先级: getElValue('#priority') as any,
+            负责人Ids: allAssignees,
+            开始时间: formatFromDateTimeLocalValue(getElValue('#startTime')),
+            截止日期: formatFromDateTimeLocalValue(getElValue('#deadline')),
+            备注: getElValue('#notes'),
+            dependencies: getMultiSelectValues('#dependencies'),
+        };
+
         updatedTask.已完成 = updatedTask.状态 === '已完成';
         app.handleUpdateTask(indices, updatedTask);
         close();

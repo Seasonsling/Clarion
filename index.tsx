@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
     时间轴数据, AppState, CurrentUser, Indices, 任务, 评论, TopLevelIndices, 
@@ -18,6 +17,7 @@ export class TimelineApp implements ITimelineApp {
     allUsers: [],
     projectsHistory: [],
     timeline: null,
+    previousTimelineState: null,
     isLoading: false,
     loadingText: "项目初始化中...",
     currentView: 'vertical',
@@ -326,8 +326,15 @@ export class TimelineApp implements ITimelineApp {
         if (!Array.isArray(taskList)) return null;
         return { parent: taskList, task, taskIndex: taskPath[taskPath.length-1] };
     }
+    
+    public clearUndoState(): void {
+        if (this.state.previousTimelineState) {
+            this.setState({ previousTimelineState: null }, false);
+        }
+    }
 
     public async handleToggleComplete(indices: Indices, isChecked: boolean): Promise<void> {
+        this.clearUndoState();
         const result = this.getTaskFromPath(indices);
         if (result && this.state.timeline) {
             const completeTaskRecursively = (task: 任务) => {
@@ -346,6 +353,7 @@ export class TimelineApp implements ITimelineApp {
     }
 
     public async handleUpdateTask(indices: Indices, updatedTask: 任务): Promise<void> {
+        this.clearUndoState();
         const result = this.getTaskFromPath(indices);
         if(result && this.state.timeline) {
             const currentTask = result.parent[result.taskIndex];
@@ -355,6 +363,7 @@ export class TimelineApp implements ITimelineApp {
     }
 
     public async handleAddTask(indices: TopLevelIndices, parentTaskPath?: number[]): Promise<void> {
+        this.clearUndoState();
         if (!this.state.timeline) return;
         const { phaseIndex, projectIndex } = indices;
         if(phaseIndex === undefined) return;
@@ -376,6 +385,7 @@ export class TimelineApp implements ITimelineApp {
     }
 
     public async handleDeleteTask(indices: Indices): Promise<void> {
+        this.clearUndoState();
         if (!confirm("确定要从此计划中移除此任务吗？")) return;
         const result = this.getTaskFromPath(indices);
         if(result && this.state.timeline) {
@@ -385,6 +395,7 @@ export class TimelineApp implements ITimelineApp {
     }
     
     public async handleAddComment(indices: Indices, content: string): Promise<void> {
+        this.clearUndoState();
         if (!content.trim() || !this.state.currentUser) return;
         const result = this.getTaskFromPath(indices);
         if (result && this.state.timeline) {
@@ -401,6 +412,7 @@ export class TimelineApp implements ITimelineApp {
     }
 
     private async handleMoveTask(draggedIndices: Indices, dropIndices: Indices, position: 'before' | 'after'): Promise<void> {
+        this.clearUndoState();
         if (!this.state.timeline) return;
         if (JSON.stringify(draggedIndices) === JSON.stringify(dropIndices)) return;
         const dragResult = this.getTaskFromPath(draggedIndices);
@@ -444,7 +456,7 @@ export class TimelineApp implements ITimelineApp {
 
     public handleLoadProject(project: 时间轴数据): void {
         if(project) {
-            this.setState({ timeline: project, currentView: 'vertical', chatHistory: [], isChatOpen: false, collapsedItems: new Set() });
+            this.setState({ timeline: project, currentView: 'vertical', chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null });
         }
     }
 
@@ -467,6 +479,7 @@ export class TimelineApp implements ITimelineApp {
     }
   
     public async handleUpdateField(indices: TopLevelIndices, field: string, value: string): Promise<void> {
+        this.clearUndoState();
         if (!this.state.timeline) return;
         const { phaseIndex, projectIndex } = indices;
         if (field === '项目名称' && phaseIndex === undefined) {
@@ -486,14 +499,45 @@ export class TimelineApp implements ITimelineApp {
         renderUI.showEditModal(this, indices, task);
     }
     
-    public async handleRegenerateClick(): Promise<void> {
-        const lastUserMessage = this.state.lastUserMessage;
-        if (this.state.isChatLoading || !lastUserMessage) return;
+    public async handleRegenerateClick(modelMessageIndex: number): Promise<void> {
+        if (this.state.isChatLoading) return;
+        
+        const userMessageToResend = this.state.chatHistory[modelMessageIndex - 1];
+        if (!userMessageToResend || userMessageToResend.role !== 'user') {
+            console.error("Cannot regenerate: preceding user message not found.");
+            return;
+        }
+    
+        const historyForResubmission = this.state.chatHistory.slice(0, modelMessageIndex);
+        this.setState({ 
+            isChatLoading: true, 
+            chatHistory: historyForResubmission,
+            lastUserMessage: userMessageToResend,
+            previousTimelineState: null,
+        });
+    
+        await handlers.submitChat.call(this, userMessageToResend);
+    }
 
-        const historyWithoutLastResponse = this.state.chatHistory.filter(m => m.role !== 'model');
-        this.setState({ isChatLoading: true, chatHistory: historyWithoutLastResponse });
+    public async handleUndo(): Promise<void> {
+        if (!this.state.previousTimelineState) {
+            console.warn("No previous state to undo to.");
+            return;
+        }
 
-        await handlers.submitChat.call(this, lastUserMessage);
+        const timelineToRestore = this.state.previousTimelineState;
+        
+        await this.saveCurrentProject(timelineToRestore);
+
+        const newHistory = [...this.state.chatHistory, {
+            role: 'model' as const,
+            text: "操作已撤销。"
+        }];
+
+        this.setState({ 
+            previousTimelineState: null,
+            chatHistory: newHistory
+        });
     }
     
     public handleRemoveAttachment(): void {
