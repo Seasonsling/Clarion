@@ -81,6 +81,10 @@ export interface ChatMessage {
     role: ChatRole;
     text: string;
     sources?: { uri: string; title: string }[];
+    attachment?: {
+        dataUrl: string;
+        mimeType: string;
+    }
 }
 
 export interface AppState {
@@ -96,7 +100,12 @@ export interface AppState {
   isChatOpen: boolean;
   isChatLoading: boolean;
   chatHistory: ChatMessage[];
-  lastUserChatPrompt: string;
+  lastUserMessage: ChatMessage | null;
+  chatAttachment: {
+      file: File;
+      dataUrl: string;
+      mimeType: string;
+  } | null;
   filters: {
     status: TaskStatus[];
     priority: TaskPriority[];

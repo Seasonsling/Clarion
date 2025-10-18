@@ -146,6 +146,14 @@ function renderChat(app: ITimelineApp): void {
     app.state.chatHistory.forEach(msg => {
         const msgEl = document.createElement('div');
         msgEl.className = `chat-message-container`;
+        
+        let attachmentHTML = '';
+        if (msg.role === 'user' && msg.attachment) {
+            if (msg.attachment.mimeType.startsWith('image/')) {
+                attachmentHTML = `<img src="${msg.attachment.dataUrl}" alt="attachment" class="message-attachment">`;
+            }
+        }
+
         const messageCore = document.createElement('div');
         messageCore.className = `chat-message ${msg.role}-message`;
         messageCore.innerHTML = `
@@ -153,9 +161,13 @@ function renderChat(app: ITimelineApp): void {
               `<div class="avatar" style="background-color: var(--accent-color-light); color: var(--text-primary);">助</div>` :
               renderUserAvatar(app, app.state.currentUser!.id)
             }
-            <div class="message-content"><p>${msg.text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p></div>
+            <div class="message-content">
+                ${msg.text ? `<p>${msg.text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>` : ''}
+                ${attachmentHTML}
+            </div>
         `;
         msgEl.appendChild(messageCore);
+
         if (msg.role === 'model') {
              if (msg.sources && msg.sources.length > 0) {
                 const sourcesEl = document.createElement('div');
@@ -197,6 +209,26 @@ function renderChat(app: ITimelineApp): void {
     }
     app.chatHistoryEl.scrollTop = app.chatHistoryEl.scrollHeight;
 }
+
+function renderChatAttachmentPreview(app: ITimelineApp): void {
+    const previewEl = app.chatAttachmentPreview;
+    const attachment = app.state.chatAttachment;
+
+    if (attachment) {
+        const isImage = attachment.mimeType.startsWith('image/');
+        previewEl.innerHTML = `
+            ${isImage ? `<img src="${attachment.dataUrl}" alt="Preview">` : '📄'}
+            <span class="file-info">${attachment.file.name}</span>
+            <button class="icon-btn remove-attachment-btn" title="Remove attachment">&times;</button>
+        `;
+        previewEl.querySelector('.remove-attachment-btn')!.addEventListener('click', () => (app as any).handleRemoveAttachment());
+        previewEl.classList.remove('hidden');
+    } else {
+        previewEl.innerHTML = '';
+        previewEl.classList.add('hidden');
+    }
+}
+
 
 function renderViewSwitcher(app: ITimelineApp): void {
     // FIX: Explicitly type the views array to ensure view.id has the correct 'ViewType'.
@@ -482,6 +514,7 @@ export const renderUI = {
     renderSaveStatusIndicator,
     renderHomeScreen,
     renderChat,
+    renderChatAttachmentPreview,
     renderViewSwitcher,
     renderViewSpecificControls,
     renderFilterSortControls,

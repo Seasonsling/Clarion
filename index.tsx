@@ -1,7 +1,8 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
     时间轴数据, AppState, CurrentUser, Indices, 任务, 评论, TopLevelIndices, 
-    ProjectMember, User, ITimelineApp, ProjectMemberRole 
+    ProjectMember, User, ITimelineApp, ProjectMemberRole, ChatMessage 
 } from './types.js';
 import * as api from './api.js';
 import { decodeJwtPayload } from './utils.js';
@@ -22,7 +23,8 @@ export class TimelineApp implements ITimelineApp {
     isChatOpen: false,
     isChatLoading: false,
     chatHistory: [],
-    lastUserChatPrompt: '',
+    lastUserMessage: null,
+    chatAttachment: null,
     filters: {
       status: [],
       priority: [],
@@ -83,6 +85,9 @@ export class TimelineApp implements ITimelineApp {
   public chatFormEl: HTMLFormElement;
   public chatInputEl: HTMLTextAreaElement;
   public chatSendBtn: HTMLButtonElement;
+  public chatAttachmentBtn: HTMLButtonElement;
+  public chatAttachmentInput: HTMLInputElement;
+  public chatAttachmentPreview: HTMLElement;
   public apiKeyModalOverlay: HTMLElement;
   public apiKeyForm: HTMLFormElement;
   public apiKeyInput: HTMLInputElement;
@@ -241,6 +246,9 @@ export class TimelineApp implements ITimelineApp {
     this.chatFormEl = document.getElementById('chat-form') as HTMLFormElement;
     this.chatInputEl = document.getElementById('chat-input') as HTMLTextAreaElement;
     this.chatSendBtn = document.getElementById('chat-send-btn') as HTMLButtonElement;
+    this.chatAttachmentBtn = document.getElementById('chat-attachment-btn') as HTMLButtonElement;
+    this.chatAttachmentInput = document.getElementById('chat-attachment-input') as HTMLInputElement;
+    this.chatAttachmentPreview = document.getElementById('chat-attachment-preview')!;
     this.apiKeyModalOverlay = document.getElementById('api-key-modal-overlay')!;
     this.apiKeyForm = document.getElementById('api-key-form') as HTMLFormElement;
     this.apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement;
@@ -284,6 +292,8 @@ export class TimelineApp implements ITimelineApp {
     this.chatBackdropEl.addEventListener('click', () => this.toggleChat(false));
     this.chatFormEl.addEventListener('submit', this.handleChatSubmit.bind(this));
     this.chatInputEl.addEventListener('input', this.autoResizeChatInput.bind(this));
+    this.chatAttachmentBtn.addEventListener('click', () => this.chatAttachmentInput.click());
+    this.chatAttachmentInput.addEventListener('change', this.handleFileAttachmentChange.bind(this));
     this.chatInputEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -879,35 +889,52 @@ Provide the report in a clean, readable format suitable for copying into an emai
     private async handleChatSubmit(e: Event): Promise<void> {
         e.preventDefault();
         const userInput = this.chatInputEl.value.trim();
-        if (!userInput) return;
+        const attachment = this.state.chatAttachment;
+        if (!userInput && !attachment) return;
+
         this.chatInputEl.value = '';
         this.autoResizeChatInput();
-        await this.submitChat(userInput);
+
+        const newUserMessage: ChatMessage = {
+            role: 'user',
+            text: userInput,
+            attachment: attachment ? { dataUrl: attachment.dataUrl, mimeType: attachment.mimeType } : undefined
+        };
+        
+        const newHistory = [...this.state.chatHistory, newUserMessage];
+        this.setState({ 
+            isChatLoading: true, 
+            lastUserMessage: newUserMessage, 
+            chatHistory: newHistory,
+            chatAttachment: null 
+        });
+        
+        await this.submitChat(newUserMessage);
     }
     
     public async handleRegenerateClick(): Promise<void> {
-        if (this.state.isChatLoading || !this.state.lastUserChatPrompt) return;
-        const lastMessage = this.state.chatHistory[this.state.chatHistory.length - 1];
-        if (lastMessage && lastMessage.role === 'model') {
-            const historyWithoutLastResponse = this.state.chatHistory.slice(0, -1);
-            this.setState({ chatHistory: historyWithoutLastResponse }, false);
-        }
-        await this.submitChat(this.state.lastUserChatPrompt);
+        const lastUserMessage = this.state.lastUserMessage;
+        if (this.state.isChatLoading || !lastUserMessage) return;
+
+        const historyWithoutLastResponse = this.state.chatHistory.filter(m => m.role !== 'model');
+        this.setState({ isChatLoading: true, chatHistory: historyWithoutLastResponse });
+
+        await this.submitChat(lastUserMessage);
     }
 
-    private async submitChat(userInput: string): Promise<void> {
+    private async submitChat(userMessage: ChatMessage): Promise<void> {
         if (!this.state.apiKey) {
             renderUI.showApiKeyModal(this, true);
             alert("请先提供您的 API 密钥。");
             return;
         }
         if (this.state.isChatLoading) return;
-        // FIX: Use 'as const' to ensure the role is not widened to a generic string type.
-        const newHistory = [...this.state.chatHistory, { role: 'user' as const, text: userInput }];
-        this.setState({ isChatLoading: true, lastUserChatPrompt: userInput, chatHistory: newHistory });
+
         try {
+            const { text: userInput, attachment } = userMessage;
             const isQuestion = /^(谁|什么|哪里|何时|为何|如何|是|做|能)\b/i.test(userInput) || userInput.endsWith('？') || userInput.endsWith('?');
-            if (isQuestion) {
+            
+            if (isQuestion && !attachment) { // Simple Q&A, no attachment
                 const response = await this.ai.models.generateContent({
                     model: "gemini-2.5-pro",
                     contents: `请根据您的知识和网络搜索结果，用中文回答以下问题。如果问题与提供的项目计划有关，请结合上下文回答。
@@ -920,12 +947,11 @@ ${JSON.stringify(this.state.timeline)}
                 });
                 const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
                 const sources = groundingChunks?.map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title })) || [];
-                // FIX: Use 'as const' to ensure the role is not widened to a generic string type.
                 const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: response.text, sources }];
                 this.setState({ chatHistory: finalHistory });
-            } else {
+
+            } else { // It's a command, a question with an attachment, or a statement with an attachment
                 if (!this.canEditProject()) {
-                    // FIX: Use 'as const' to ensure the role is not widened to a generic string type.
                     const errorHistory = [...this.state.chatHistory, { role: 'model' as const, text: "抱歉，您没有修改此项目的权限。" }];
                     this.setState({ chatHistory: errorHistory });
                     return;
@@ -938,9 +964,9 @@ ${JSON.stringify(this.state.timeline)}
                     },
                     required: ["responseText", "updatedTimeline"],
                 };
-                const response = await this.ai.models.generateContent({
-                    model: "gemini-2.5-pro",
-                    contents: `${this.getCurrentDateContext()} 作为一名高级项目管理AI助手，请根据用户的自然语言请求，智能地修改提供的项目计划JSON。
+
+                const promptText = `${this.getCurrentDateContext()} 作为一名高级项目管理AI助手，请根据用户的自然语言请求${attachment ? "和附加文件" : ""}，智能地修改提供的项目计划JSON。
+**重要原则**: 请在保留原始计划所有结构、ID和未更改内容的基础上，只进行最小化、最精准的修改。不要重新生成或改变与用户请求不相关的任务或ID。
 您的任务是：
 1.  **解析意图**：深入理解用户的请求，这可能包括任务的新增、查询、状态更新（例如，“我做完了方案设计”），日期调整（“把EDC系统交付推迟2天”），甚至是删除（“取消那个市场调研任务”）。
 2.  **精确时间**：当用户提到相对时间（如“推迟2天”、“明天中午12点”），你必须根据当前时间上下文计算出精确的“YYYY-MM-DD HH:mm”格式的时间，并更新相应的“开始时间”或“截止日期”字段。
@@ -956,24 +982,61 @@ ${JSON.stringify(this.state.timeline)}
 ---
 用户请求:
 "${userInput}"
----`,
+---`;
+                // FIX: Construct the `contents` array in a way that allows TypeScript to infer a union type for multimodal input.
+                const contents = [];
+                if (attachment) {
+                    contents.push({
+                        inlineData: {
+                            mimeType: attachment.mimeType,
+                            data: attachment.dataUrl.split(',')[1]
+                        }
+                    });
+                }
+                contents.push({ text: promptText });
+
+                const response = await this.ai.models.generateContent({
+                    model: "gemini-2.5-pro",
+                    contents: { parts: contents },
                     config: { responseMimeType: "application/json", responseSchema: responseSchema },
                 });
+
                 const result = JSON.parse(response.text);
                 const updatedTimeline = this.postProcessTimelineData({ ...this.state.timeline, ...result.updatedTimeline });
-                // FIX: Use 'as const' to ensure the role is not widened to a generic string type.
                 const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText }];
                 await this.saveCurrentProject(updatedTimeline);
                 this.setState({ chatHistory: finalHistory });
             }
         } catch (error) {
             console.error("智能助理出错:", error);
-            // FIX: Use 'as const' to ensure the role is not widened to a generic string type.
             const errorHistory = [...this.state.chatHistory, { role: 'model' as const, text: "抱歉，理解您的指令时遇到了些问题，请您换一种方式描述，或者稍后再试。这可能是由于 API 密钥无效或网络问题导致。" }];
             this.setState({ chatHistory: errorHistory });
         } finally {
             this.setState({ isChatLoading: false });
         }
+    }
+    
+    private handleFileAttachmentChange(event: Event): void {
+        const file = (event.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+        if (!allowedTypes.includes(file.type)) {
+            alert('不支持的文件类型。请上传图片 (JPG, PNG, WEBP) 或 PDF。');
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const dataUrl = e.target?.result as string;
+            this.setState({ chatAttachment: { file, dataUrl, mimeType: file.type } });
+        };
+        reader.readAsDataURL(file);
+        (event.target as HTMLInputElement).value = ''; // Reset input
+    }
+    
+    private handleRemoveAttachment(): void {
+        this.setState({ chatAttachment: null });
     }
 
     public render(): void {
@@ -1013,6 +1076,7 @@ ${JSON.stringify(this.state.timeline)}
             renderUI.renderViewSpecificControls(this);
             renderUI.renderFilterSortControls(this);
             renderUI.renderChat(this);
+            renderUI.renderChatAttachmentPreview(this);
             renderView(this);
         } else {
             this.inputSection.classList.remove("hidden");
