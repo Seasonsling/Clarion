@@ -178,6 +178,92 @@ ${projectDescription || "（无文字描述，请主要参考附加文件）"}
     }
 }
 
+export async function handleRefineProject(this: ITimelineApp): Promise<void> {
+    if (!this.state.apiKey) {
+        renderUI.showApiKeyModal(this, true);
+        alert("请先提供您的 API 密钥。");
+        return;
+    }
+    if (!this.state.timeline) return;
+
+    this.setState({ isLoading: true, loadingText: "AI 正在深度优化项目计划..." });
+
+    try {
+        const membersInfo = this.state.allUsers
+            .filter(u => this.state.timeline!.members.some(m => m.userId === u.id))
+            .map(u => `- ${u.profile.displayName} (ID: ${u.id})`)
+            .join('\n');
+
+        const prompt = `
+        ${(this as any).getCurrentDateContext()}
+        作为一名专家级项目管理AI，你的任务是细致地审查并完善以下项目计划JSON。你的目标是智能地补全所有任务和子任务中缺失或模糊的信息，使计划更完整、更具可执行性。
+
+        可供分配的项目成员:
+        ${membersInfo || '无可用成员信息。'}
+
+        **核心指令:**
+        1.  **遍历所有任务**: 仔细检查计划中的每一个任务和子任务。
+        2.  **智能填补**: 对每个任务，如果某个字段为空、内容宽泛（如“新任务”、“待定”），或缺失，请利用项目的整体上下文、任务依赖和成员列表来推断并补全以下信息：
+            *   \`详情\`: 如果为空，请撰写一段简明扼要的任务目标描述。
+            *   \`开始时间\` 和 \`截止日期\`: 根据依赖关系和项目整体流程，估算出现实的起止时间，格式为 "YYYY-MM-DD HH:mm"。
+            *   \`负责人Ids\`: 根据任务名称和详情，从成员列表中分配合适的成员。请使用他们的用户ID。
+            *   \`优先级\`: 根据任务的重要性及其依赖关系，设置“高”、“中”或“低”的优先级。
+            *   \`dependencies\`: 重新审视计划，并添加任何你发现的、被遗漏的逻辑依赖关系。
+        3.  **保留现有数据**: 这是关键。**不要**更改已经明确、具体定义的数据。你的角色是增强，而不是覆盖。
+        4.  **保持结构完整**: **不要**创建新任务、删除现有任务或更改任何已有的任务 \`id\`。项目结构必须保持不变。
+        5.  **返回完整计划**: 完成分析后，以指定的JSON格式返回完整、优化后的项目计划。
+
+        以下是需要优化的项目计划:
+        ---
+        ${JSON.stringify(this.state.timeline)}
+        ---`;
+
+        const responseSchema = (this as any).createTimelineSchema();
+        const response = await this.ai.models.generateContent({
+            model: "gemini-2.5-pro", // Hardcoded as per request
+            contents: prompt,
+            config: { responseMimeType: "application/json", responseSchema: responseSchema },
+        });
+
+        const refinedTimelineData = JSON.parse(response.text);
+        
+        refinedTimelineData.id = this.state.timeline.id;
+        refinedTimelineData.ownerId = this.state.timeline.ownerId;
+        refinedTimelineData.members = this.state.timeline.members;
+
+        const finalRefinedTimeline = this.postProcessTimelineData(refinedTimelineData);
+        const diff = (this as any).computeTimelineDiff(this.state.timeline!, finalRefinedTimeline);
+
+        if (diff.size > 0) {
+            this.setState({
+                previousTimelineState: JSON.parse(JSON.stringify(this.state.timeline)), 
+            }, false); // Set previous state for potential undo, don't re-render yet
+            
+            const newHistory = [...this.state.chatHistory, {
+                role: 'model' as const,
+                text: '我已根据项目全局信息，对计划进行了深度优化。请您审核修改。',
+                isProposal: true,
+                isModification: true
+            }];
+
+            this.setState({
+                pendingTimeline: { data: finalRefinedTimeline, diff },
+                chatHistory: newHistory,
+                isChatOpen: true
+            });
+        } else {
+            alert("AI分析后未发现可优化的内容。");
+        }
+
+    } catch (error) {
+        console.error("深度优化项目时出错:", error);
+        alert("项目优化失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
+    } finally {
+        this.setState({ isLoading: false });
+    }
+}
+
+
 export function handleClearClick(this: ITimelineApp): void {
     this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null, pendingTimeline: null });
 }
@@ -379,7 +465,7 @@ export async function handleChatSubmit(this: ITimelineApp, e: Event): Promise<vo
         chatAttachment: null 
     });
     
-    const modelForThisTurn = this.chatFormModelSelector.value || this.state.chatModel;
+    const modelForThisTurn = (this.chatFormModelSelector.value as 'gemini-flash' | 'gemini-2.5-pro') || this.state.chatModel;
     await submitChat.call(this, newUserMessage, newHistory, modelForThisTurn);
 }
 

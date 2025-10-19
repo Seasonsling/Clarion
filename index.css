@@ -375,6 +375,13 @@ textarea#quick-add-input:focus {
     transform: translateY(0px);
     background-color: var(--secondary-color);
 }
+.secondary-btn:disabled {
+  color: var(--text-secondary);
+  background-color: var(--secondary-color);
+  border-color: var(--border-color);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 
 .secondary-btn.danger {
     color: var(--danger-color);
@@ -382,6 +389,14 @@ textarea#quick-add-input:focus {
 }
 .secondary-btn.danger:hover {
     background-color: var(--diff-deleted-bg);
+}
+
+#refine-btn {
+  color: var(--critical-path-color);
+  border-color: var(--critical-path-color);
+}
+#refine-btn:hover:not(:disabled) {
+  background-color: rgba(171, 71, 188, 0.1);
 }
 
 .icon {

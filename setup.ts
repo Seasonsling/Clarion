@@ -21,6 +21,7 @@ export function cacheDOMElements(app: ITimelineApp): void {
     app.saveStatusEl = document.getElementById('save-status-indicator')!;
     app.userDisplayEl = document.getElementById('user-display')!;
     app.aboutBtn = document.getElementById('about-btn') as HTMLButtonElement;
+    app.refineBtn = document.getElementById('refine-btn') as HTMLButtonElement;
     app.shareBtn = document.getElementById('share-btn') as HTMLButtonElement;
     app.clearBtn = document.getElementById("clear-btn") as HTMLButtonElement;
     app.loadingOverlay = document.getElementById("loading-overlay")!;
@@ -73,6 +74,7 @@ export function addEventListeners(app: ITimelineApp): void {
     app.importBtn.addEventListener("click", () => app.importFileEl.click());
     app.importFileEl.addEventListener("change", handlers.handleImport.bind(app));
     app.quickAddFormEl.addEventListener('submit', handlers.handleQuickAddTask.bind(app));
+    app.refineBtn.addEventListener('click', handlers.handleRefineProject.bind(app));
     app.shareBtn.addEventListener('click', () => renderUI.showMembersModal(app));
     app.reportBtnToggle.addEventListener('click', (e) => {
         e.stopPropagation();

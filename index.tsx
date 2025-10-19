@@ -70,6 +70,7 @@ export class TimelineApp implements ITimelineApp {
   public saveStatusEl: HTMLElement;
   public userDisplayEl: HTMLElement;
   public aboutBtn: HTMLButtonElement;
+  public refineBtn: HTMLButtonElement;
   public shareBtn: HTMLButtonElement;
   public clearBtn: HTMLButtonElement;
   public loadingOverlay: HTMLElement;
@@ -530,7 +531,7 @@ export class TimelineApp implements ITimelineApp {
             pendingTimeline: null,
         });
     
-        await handlers.submitChat.call(this, userMessageToResend, historyForResubmission);
+        await handlers.submitChat.call(this, userMessageToResend, historyForResubmission, this.state.chatModel);
     }
 
     public handleEditChatMessage(messageIndex: number): void {
@@ -561,7 +562,7 @@ export class TimelineApp implements ITimelineApp {
             pendingTimeline: null,
         });
     
-        await handlers.submitChat.call(this, userMessageToEdit, historyForResubmission);
+        await handlers.submitChat.call(this, userMessageToEdit, historyForResubmission, this.state.chatModel);
     }
 
     public handleDeleteChatMessage(messageIndex: number): void {
@@ -843,6 +844,7 @@ export class TimelineApp implements ITimelineApp {
             }
             renderUI.renderSaveStatusIndicator(this);
             this.shareBtn.style.display = userRole === 'Viewer' ? 'none' : 'inline-flex';
+            this.refineBtn.disabled = readOnly;
             this.aiChangesConfirmBar.classList.toggle('hidden', !this.state.pendingTimeline);
             renderUI.renderViewSwitcher(this);
             renderUI.renderViewSpecificControls(this);
