@@ -76,6 +76,7 @@ export interface 时间轴数据 {
 export type ViewType = 'vertical' | 'gantt' | 'kanban' | 'calendar' | 'workload' | 'dependencies' | 'mindmap';
 export type ChatRole = 'user' | 'model';
 export type GanttGranularity = 'days' | 'weeks' | 'months';
+export type ChatModel = 'gemini-2.5-pro' | 'gemini-flash';
 
 export interface ChatMessage {
     role: ChatRole;
@@ -121,6 +122,7 @@ export interface AppState {
       dataUrl: string;
       mimeType: string;
   } | null;
+  chatModel: ChatModel;
   filters: {
     status: TaskStatus[];
     priority: TaskPriority[];

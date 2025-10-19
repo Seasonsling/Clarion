@@ -1,6 +1,6 @@
 import { getInitials, stringToColor } from './utils.js';
 // FIX: Import ViewType and GanttGranularity to correctly type UI control data.
-import type { ITimelineApp, Indices, 任务, TopLevelIndices, ProjectMemberRole, User, ViewType, GanttGranularity } from './types.js';
+import type { ITimelineApp, Indices, 任务, TopLevelIndices, ProjectMemberRole, User, ViewType, GanttGranularity, ChatModel } from './types.js';
 
 function renderAuth(app: ITimelineApp): void {
     app.authSection.classList.remove('hidden');
@@ -142,6 +142,30 @@ function renderHomeScreen(app: ITimelineApp): void {
 }
 
 function renderChat(app: ITimelineApp): void {
+    if (!app.chatModelSelectorContainer.querySelector('#chat-model-selector')) {
+        app.chatModelSelectorContainer.innerHTML = '';
+        const selectEl = document.createElement('select');
+        selectEl.id = 'chat-model-selector';
+        selectEl.title = '选择AI模型';
+        const models = [
+            { id: 'gemini-flash', name: 'Gemini Flash (快速)' },
+            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (强大)' }
+        ];
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.name;
+            if (model.id === app.state.chatModel) {
+                option.selected = true;
+            }
+            selectEl.appendChild(option);
+        });
+        selectEl.addEventListener('change', (e) => {
+            app.setState({ chatModel: (e.target as HTMLSelectElement).value as ChatModel });
+        });
+        app.chatModelSelectorContainer.appendChild(selectEl);
+    }
+
     app.chatHistoryEl.innerHTML = '';
     app.state.chatHistory.forEach((msg, index) => {
         const msgEl = document.createElement('div');

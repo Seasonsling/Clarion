@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
     时间轴数据, AppState, CurrentUser, Indices, 任务, 评论, TopLevelIndices, 
-    ProjectMember, User, ITimelineApp, ProjectMemberRole, ChatMessage, TaskDiff 
+    ProjectMember, User, ITimelineApp, ProjectMemberRole, ChatMessage, TaskDiff, ChatModel 
 } from './types.js';
 import * as api from './api.js';
 import { decodeJwtPayload } from './utils.js';
@@ -29,6 +29,7 @@ export class TimelineApp implements ITimelineApp {
     chatHistory: [],
     lastUserMessage: null,
     chatAttachment: null,
+    chatModel: 'gemini-flash',
     filters: {
       status: [],
       priority: [],
@@ -95,6 +96,7 @@ export class TimelineApp implements ITimelineApp {
   public chatAttachmentBtn: HTMLButtonElement;
   public chatAttachmentInput: HTMLInputElement;
   public chatAttachmentPreview: HTMLElement;
+  public chatModelSelectorContainer: HTMLElement;
   public apiKeyModalOverlay: HTMLElement;
   public apiKeyForm: HTMLFormElement;
   public apiKeyInput: HTMLInputElement;
@@ -116,12 +118,14 @@ export class TimelineApp implements ITimelineApp {
     const savedDataJSON = localStorage.getItem("timelineAppData");
     let token: string | null = null;
     let apiKey: string | null = null;
+    let chatModel: ChatModel | null = null;
     
     if (savedDataJSON) {
         try {
             const savedData = JSON.parse(savedDataJSON);
             token = savedData.authToken || null;
             apiKey = savedData.apiKey || null;
+            chatModel = savedData.chatModel || null;
         } catch(e) {
             console.error("Failed to parse saved data, clearing.", e);
             localStorage.removeItem("timelineAppData");
@@ -129,6 +133,7 @@ export class TimelineApp implements ITimelineApp {
     }
     
     this.state.apiKey = apiKey;
+    if (chatModel) this.state.chatModel = chatModel;
     this.ai = new GoogleGenAI({ apiKey: this.state.apiKey || '' });
     
     if (token) {
@@ -217,17 +222,15 @@ export class TimelineApp implements ITimelineApp {
   }
 
   public setState(newState: Partial<AppState>, shouldRender: boolean = true): void {
-    const oldUser = this.state.currentUser;
     this.state = { ...this.state, ...newState };
     
     if (shouldRender) {
       this.render();
     }
     
-    if (newState.currentUser !== undefined || newState.apiKey !== undefined) {
-      if ((newState.currentUser && !oldUser) || (!newState.currentUser && oldUser) || (newState.apiKey !== this.state.apiKey)) {
-        this.saveState();
-      }
+    // If any of the persisted properties are present in the update, save the state.
+    if ('currentUser' in newState || 'apiKey' in newState || 'chatModel' in newState) {
+      this.saveState();
     }
   }
 
@@ -235,6 +238,7 @@ export class TimelineApp implements ITimelineApp {
     const appData = {
         authToken: this.state.currentUser?.token,
         apiKey: this.state.apiKey,
+        chatModel: this.state.chatModel,
     };
     localStorage.setItem("timelineAppData", JSON.stringify(appData));
   }
@@ -519,7 +523,7 @@ export class TimelineApp implements ITimelineApp {
             pendingTimeline: null,
         });
     
-        await handlers.submitChat.call(this, userMessageToResend);
+        await handlers.submitChat.call(this, userMessageToResend, historyForResubmission);
     }
 
     public async handleUndo(): Promise<void> {

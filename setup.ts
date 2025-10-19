@@ -48,6 +48,7 @@ export function cacheDOMElements(app: ITimelineApp): void {
     app.chatAttachmentBtn = document.getElementById('chat-attachment-btn') as HTMLButtonElement;
     app.chatAttachmentInput = document.getElementById('chat-attachment-input') as HTMLInputElement;
     app.chatAttachmentPreview = document.getElementById('chat-attachment-preview')!;
+    app.chatModelSelectorContainer = document.getElementById('chat-model-selector-container')!;
     app.apiKeyModalOverlay = document.getElementById('api-key-modal-overlay')!;
     app.apiKeyForm = document.getElementById('api-key-form') as HTMLFormElement;
     app.apiKeyInput = document.getElementById('api-key-input') as HTMLInputElement;
