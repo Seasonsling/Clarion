@@ -359,8 +359,8 @@ export class TimelineApp implements ITimelineApp {
                 result.task.已完成 = false;
                 result.task.状态 = '进行中';
             }
+            this.render(); // Optimistic UI update
             await this.saveCurrentProject(this.state.timeline);
-            this.render();
         }
     }
 
@@ -370,8 +370,8 @@ export class TimelineApp implements ITimelineApp {
         if(result && this.state.timeline) {
             const currentTask = result.parent[result.taskIndex];
             result.parent[result.taskIndex] = { ...currentTask, ...updatedTask };
+            this.render(); // Optimistic UI update
             await this.saveCurrentProject(this.state.timeline);
-            this.render();
         }
     }
 
@@ -394,8 +394,8 @@ export class TimelineApp implements ITimelineApp {
              if (!taskListOwner.任务) taskListOwner.任务 = [];
              taskListOwner.任务.push(newTask);
         }
+        this.render(); // Optimistic UI update
         await this.saveCurrentProject(this.state.timeline);
-        this.render();
     }
 
     public async handleDeleteTask(indices: Indices): Promise<void> {
@@ -404,8 +404,8 @@ export class TimelineApp implements ITimelineApp {
         const result = this.getTaskFromPath(indices);
         if(result && this.state.timeline) {
             result.parent.splice(result.taskIndex, 1);
+            this.render(); // Optimistic UI update
             await this.saveCurrentProject(this.state.timeline);
-            this.render();
         }
     }
     
@@ -427,9 +427,6 @@ export class TimelineApp implements ITimelineApp {
                 attachments: []
             };
     
-            // TODO: Replace this with a proper backend upload mechanism.
-            // Direct WebDAV from frontend is insecure and blocked by CORS.
-            // This simulation uses data URLs for images and placeholders for other files.
             for (const file of pendingFiles) {
                 let url = '#'; // Placeholder URL
                 if (file.type.startsWith('image/')) {
@@ -447,9 +444,9 @@ export class TimelineApp implements ITimelineApp {
             }
     
             task.讨论.push(newComment);
-            this.commentAttachments.delete(task.id); // Clear pending files for this task
+            this.commentAttachments.delete(task.id); 
+            this.render(); // Optimistic UI update
             await this.saveCurrentProject(this.state.timeline);
-            this.render();
         }
     }
     
@@ -461,8 +458,8 @@ export class TimelineApp implements ITimelineApp {
             const commentIndex = result.task.讨论.findIndex(c => c.id === commentId);
             if (commentIndex > -1) {
                 result.task.讨论.splice(commentIndex, 1);
+                this.render(); // Optimistic UI update
                 await this.saveCurrentProject(this.state.timeline);
-                this.render();
             }
         }
     }
@@ -474,8 +471,8 @@ export class TimelineApp implements ITimelineApp {
             const comment = result.task.讨论.find(c => c.id === commentId);
             if (comment && comment.内容 !== newContent) {
                 comment.内容 = newContent;
+                this.render(); // Optimistic UI update
                 await this.saveCurrentProject(this.state.timeline);
-                this.render();
             } else {
                 this.render(); // Re-render to hide edit form if content is unchanged
             }
@@ -504,11 +501,12 @@ export class TimelineApp implements ITimelineApp {
         }
         const insertIndex = position === 'before' ? dropIndex : dropIndex + 1;
         dropParent.splice(insertIndex, 0, movedTask);
+        this.render(); // Optimistic UI update
         await this.saveCurrentProject(this.state.timeline);
-        this.render();
     }
 
     public async saveCurrentProject(updatedTimeline: 时间轴数据) {
+        if (!this.state.currentUser) return; // Should not happen if called from a handler
         const projectIndex = this.state.projectsHistory.findIndex(p => p.id === updatedTimeline.id);
         const newHistory = [...this.state.projectsHistory];
         if (projectIndex !== -1) {
@@ -517,15 +515,17 @@ export class TimelineApp implements ITimelineApp {
              newHistory.push(updatedTimeline);
         }
         
-        this.setState({ 
-            timeline: { ...updatedTimeline }, 
+        // Update state but do not trigger a full render here.
+        // The handler that called this function is responsible for the optimistic UI update.
+        this.setState({
             projectsHistory: newHistory, 
             saveStatus: 'saving' 
         }, false);
         renderUI.renderSaveStatusIndicator(this);
         
         try {
-            await api.updateProject(updatedTimeline, this.state.currentUser!.token);
+            // Because the handler already did an optimistic update, we pass a fresh copy to the API
+            await api.updateProject(JSON.parse(JSON.stringify(updatedTimeline)), this.state.currentUser.token);
             this.setState({ saveStatus: 'saved' }, false);
             renderUI.renderSaveStatusIndicator(this);
         } catch (error) {
@@ -574,8 +574,8 @@ export class TimelineApp implements ITimelineApp {
                 phase.阶段名称 = value;
             }
         }
+        this.render(); // Optimistic UI update
         await this.saveCurrentProject(this.state.timeline);
-        this.render();
     }
   
     public showEditModal(indices: Indices, task: 任务): void {
@@ -667,6 +667,12 @@ export class TimelineApp implements ITimelineApp {
 
         const timelineToRestore = this.state.previousTimelineState;
         
+        // Use the existing save logic, but first, update the UI optimistically.
+        this.setState({
+            timeline: timelineToRestore,
+            previousTimelineState: null, // Clear undo state
+        });
+        
         await this.saveCurrentProject(timelineToRestore);
 
         const newHistory = [...this.state.chatHistory, {
@@ -674,10 +680,7 @@ export class TimelineApp implements ITimelineApp {
             text: "操作已撤销。"
         }];
 
-        this.setState({ 
-            previousTimelineState: null,
-            chatHistory: newHistory
-        });
+        this.setState({ chatHistory: newHistory });
     }
     
     public handleRemoveAttachment(): void {
@@ -784,9 +787,15 @@ export class TimelineApp implements ITimelineApp {
         if (!this.state.pendingTimeline) return;
         const timelineToSave = this.state.pendingTimeline.data;
         this.clearUndoState();
+        
+        // Optimistically update the main timeline state and render
+        this.setState({
+            timeline: timelineToSave,
+            pendingTimeline: null,
+        });
+        
+        // Save the accepted changes in the background
         await this.saveCurrentProject(timelineToSave);
-        this.setState({ pendingTimeline: null });
-        this.render();
     }
 
     public handleRejectAiChanges(): void {
@@ -900,6 +909,7 @@ export class TimelineApp implements ITimelineApp {
         }
         this.chatSendBtn.disabled = this.state.isChatLoading;
         renderUI.renderUserDisplay(this);
+        renderUI.renderSaveStatusIndicator(this); // Ensure save status is rendered
 
         const timelineData = this.state.pendingTimeline ? this.state.pendingTimeline.data : this.state.timeline;
 
@@ -917,7 +927,7 @@ export class TimelineApp implements ITimelineApp {
                 badge.textContent = !!this.state.pendingTimeline ? '审核模式' : '只读模式';
                 this.projectNameEl.appendChild(badge);
             }
-            renderUI.renderSaveStatusIndicator(this);
+            
             this.shareBtn.style.display = userRole === 'Viewer' ? 'none' : 'inline-flex';
             this.refineBtn.disabled = readOnly;
             this.aiChangesConfirmBar.classList.toggle('hidden', !this.state.pendingTimeline);

@@ -53,7 +53,7 @@
     -   **身份认证**: JWT (JSON Web Tokens)
 -   **核心 AI 模型**:
     -   `gemini-2.5-pro` (能力强大)
-    -   `gemini-flash-latest` (响应迅速)
+    -   `gemini-flash` (响应迅速)
 
 ## 🎯 快速开始
 
