@@ -4,6 +4,31 @@ import * as api from './api.js';
 import { renderUI } from './ui.js';
 import { decodeJwtPayload, blobToBase64 } from './utils.js';
 
+/**
+ * Generates a specific and user-friendly error message for API-related failures.
+ * @param error The error object caught.
+ * @param context A string describing the action that failed (e.g., "同步周进度").
+ * @returns A formatted, actionable error message string.
+ */
+function getApiErrorMessage(error: unknown, context: string): string {
+    const baseMessage = `${context}失败`;
+    if (error instanceof Error) {
+        if (error.message.includes('API key')) {
+            return `${baseMessage}：您的 API 密钥似乎无效或已过期。请在用户设置中检查并更新。`;
+        }
+        if (error.message.includes('timed out') || error.message.includes('network')) {
+            return `${baseMessage}：网络连接超时。请检查您的网络并重试。`;
+        }
+        if (error.message.includes('JSON')) {
+             return `${baseMessage}：AI 返回了无效的数据格式。这可能是由于任务过于复杂或模型暂时不稳定。`;
+        }
+        // For other identifiable errors, return the specific message.
+        return `${baseMessage}，发生了一个意外错误：${error.message}`;
+    }
+    // Fallback for non-Error objects or unknown errors
+    return `${baseMessage}，发生了一个未知错误。请检查浏览器控制台获取更多技术信息。`;
+}
+
 export function handleAuthSwitch(this: ITimelineApp, view: 'login' | 'register'): void {
   this.setState({ authView: view });
 }
@@ -174,7 +199,7 @@ ${projectDescription || "（无文字描述，请主要参考附加文件）"}
       this.setState({ timeline: savedProject, projectsHistory: newHistory, currentView: 'vertical', chatHistory: [], isChatOpen: false });
     } catch (error) {
       console.error("生成或保存计划时出错：", error);
-      alert("计划生成或保存失败，请稍后重试。");
+      alert(getApiErrorMessage(error, "计划生成或保存"));
     } finally {
       this.setState({ isLoading: false });
     }
@@ -261,7 +286,7 @@ export async function handleRefineProject(this: ITimelineApp): Promise<void> {
 
     } catch (error) {
         console.error("深度优化项目时出错:", error);
-        alert("项目优化失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
+        alert(getApiErrorMessage(error, "项目优化"));
     } finally {
         this.setState({ isLoading: false });
     }
@@ -322,17 +347,7 @@ export async function handleSyncWeeklyProgress(this: ITimelineApp): Promise<void
 
     } catch (error) {
         console.error("同步周进度时出错:", error);
-        let errorMessage = "同步周进度失败，请稍后重试。";
-        if (error instanceof Error) {
-            if (error.message.includes('API key')) {
-                errorMessage = "同步失败：您的 API 密钥无效或已过期。请在用户设置中更新。";
-            } else if (error.message.includes('timed out') || error.message.includes('network')) {
-                errorMessage = "同步失败：网络连接超时。请检查您的网络并重试。";
-            } else if (error.message.includes('JSON')) {
-                 errorMessage = "同步失败：AI 返回了无效的数据格式。可能是任务过于复杂，请尝试分步处理。";
-            }
-        }
-        alert(errorMessage);
+        alert(getApiErrorMessage(error, "同步周进度"));
     } finally {
         this.setState({ isLoading: false });
     }
@@ -446,7 +461,7 @@ ${JSON.stringify(projectToUpdate)}
         deadlineInput.value = '';
     } catch (error) {
         console.error("快速追加任务时出错:", error);
-        alert("任务追加失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
+        alert(getApiErrorMessage(error, "任务追加"));
     } finally {
         this.setState({ isLoading: false });
     }
@@ -513,7 +528,8 @@ Provide the report in a clean, readable format suitable for copying into an emai
         renderUI.showReportModal(this, false, response.text, reportTitle);
     } catch (error) {
         console.error("生成报告时出错:", error);
-        renderUI.showReportModal(this, false, "抱歉，生成报告时发生错误。这可能是由于 API 密钥无效或网络问题导致，请稍后重试。", reportTitle);
+        const reportTitle = period === 'weekly' ? '周报' : '月报';
+        renderUI.showReportModal(this, false, getApiErrorMessage(error, "报告生成"), reportTitle);
     }
 }
 
@@ -588,7 +604,8 @@ B. 张之润 (核心技术攻坚 & 硬件负责人)
         renderUI.showReportModal(this, false, response.text, title);
     } catch (error) {
         console.error("生成周计划时出错:", error);
-        renderUI.showReportModal(this, false, "抱歉，生成周计划时发生错误。请稍后重试。", title);
+        const title = '周度计划';
+        renderUI.showReportModal(this, false, getApiErrorMessage(error, "周计划生成"), title);
     } finally {
         this.setState({ isLoading: false });
     }
@@ -738,7 +755,7 @@ ${JSON.stringify(this.state.timeline)}
         }
     } catch (error) {
         console.error("智能助理出错:", error);
-        const errorHistory = [...currentChatHistory, { role: 'model' as const, text: "抱歉，理解您的指令时遇到了些问题，请您换一种方式描述，或者稍后再试。这可能是由于 API 密钥无效或网络问题导致。" }];
+        const errorHistory = [...currentChatHistory, { role: 'model' as const, text: getApiErrorMessage(error, "智能助理指令处理") }];
         this.setState({ chatHistory: errorHistory });
     } finally {
         this.setState({ isChatLoading: false });
