@@ -145,9 +145,11 @@ ${projectDescription || "（无文字描述，请主要参考附加文件）"}
       }
 
       parts.push({ text: prompt });
+      
+      const modelName = this.state.chatModel === 'gemini-flash' ? 'gemini-flash-latest' : 'gemini-2.5-pro';
 
       const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-pro",
+        model: modelName,
         contents: { parts },
         config: { responseMimeType: "application/json", responseSchema: responseSchema },
       });
@@ -219,8 +221,10 @@ export async function handleRefineProject(this: ITimelineApp): Promise<void> {
         ---`;
 
         const responseSchema = (this as any).createTimelineSchema();
+        const modelName = this.state.chatModel === 'gemini-flash' ? 'gemini-flash-latest' : 'gemini-2.5-pro';
+        
         const response = await this.ai.models.generateContent({
-            model: "gemini-2.5-pro",
+            model: modelName,
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: responseSchema },
         });
@@ -357,8 +361,9 @@ ${additionalInfo ? `此外，用户还提供了以下信息：${additionalInfo}`
 当前项目计划:
 ${JSON.stringify(projectToUpdate)}
 ---`;
+        const modelName = this.state.chatModel === 'gemini-flash' ? 'gemini-flash-latest' : 'gemini-2.5-pro';
         const response = await this.ai.models.generateContent({
-            model: "gemini-2.5-pro",
+            model: modelName,
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema },
         });
@@ -419,8 +424,9 @@ ${JSON.stringify(this.state.timeline, null, 2)}
 ---
 Provide the report in a clean, readable format suitable for copying into an email or document. Use markdown for headers.`;
 
+        const modelName = this.state.chatModel === 'gemini-flash' ? 'gemini-flash-latest' : 'gemini-2.5-pro';
         const response = await this.ai.models.generateContent({
-            model: "gemini-2.5-pro",
+            model: modelName,
             contents: prompt,
         });
         renderUI.showReportModal(this, false, response.text);
@@ -479,10 +485,11 @@ export async function submitChat(this: ITimelineApp, userMessage: ChatMessage, c
     try {
         const { text: userInput, attachment } = userMessage;
         const isQuestion = /^(谁|什么|哪里|何时|为何|如何|是|做|能)\b/i.test(userInput) || userInput.endsWith('？') || userInput.endsWith('?');
+        const modelName = this.state.chatModel === 'gemini-flash' ? 'gemini-flash-latest' : 'gemini-2.5-pro';
         
         if (isQuestion && !attachment) { // Simple Q&A, no attachment
             const response = await this.ai.models.generateContent({
-                model: "gemini-2.5-pro",
+                model: modelName,
                 contents: `请根据您的知识和网络搜索结果，用中文回答以下问题。如果问题与提供的项目计划有关，请结合上下文回答。
 ---
 当前项目计划 (上下文参考):
@@ -542,7 +549,7 @@ ${JSON.stringify(this.state.timeline)}
             contents.push({ text: promptText });
 
             const response = await this.ai.models.generateContent({
-                model: "gemini-2.5-pro",
+                model: modelName,
                 contents: { parts: contents },
                 config: { responseMimeType: "application/json", responseSchema: responseSchema },
             });
