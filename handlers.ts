@@ -379,17 +379,17 @@ export async function handleChatSubmit(this: ITimelineApp, e: Event): Promise<vo
         chatAttachment: null 
     });
     
-    await submitChat.call(this, newUserMessage);
+    await submitChat.call(this, newUserMessage, newHistory);
 }
 
-export async function submitChat(this: ITimelineApp, userMessage: ChatMessage): Promise<void> {
+export async function submitChat(this: ITimelineApp, userMessage: ChatMessage, currentChatHistory: ChatMessage[]): Promise<void> {
     if (!this.state.apiKey) {
         renderUI.showApiKeyModal(this, true);
         alert("请先提供您的 API 密钥。");
+        this.setState({ isChatLoading: false });
         return;
     }
-    if (this.state.isChatLoading) return;
-
+    
     try {
         const { text: userInput, attachment } = userMessage;
         const isQuestion = /^(谁|什么|哪里|何时|为何|如何|是|做|能)\b/i.test(userInput) || userInput.endsWith('？') || userInput.endsWith('?');
@@ -407,12 +407,12 @@ ${JSON.stringify(this.state.timeline)}
             });
             const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
             const sources = groundingChunks?.map((chunk: any) => ({ uri: chunk.web.uri, title: chunk.web.title })) || [];
-            const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: response.text, sources }];
+            const finalHistory = [...currentChatHistory, { role: 'model' as const, text: response.text, sources }];
             this.setState({ chatHistory: finalHistory });
 
         } else { // It's a command, a question with an attachment, or a statement with an attachment
             if (!this.canEditProject()) {
-                const errorHistory = [...this.state.chatHistory, { role: 'model' as const, text: "抱歉，您没有修改此项目的权限。" }];
+                const errorHistory = [...currentChatHistory, { role: 'model' as const, text: "抱歉，您没有修改此项目的权限。" }];
                 this.setState({ chatHistory: errorHistory });
                 return;
             }
@@ -464,24 +464,29 @@ ${JSON.stringify(this.state.timeline)}
             const result = JSON.parse(response.text);
 
             if (result.didModify && result.updatedTimeline) {
-                const updatedTimeline = this.postProcessTimelineData({ ...this.state.timeline, ...result.updatedTimeline });
-                const diff = (this as any).computeTimelineDiff(this.state.timeline!, updatedTimeline);
+                const updatedTimelineDataFromAI = result.updatedTimeline;
+                updatedTimelineDataFromAI.id = this.state.timeline!.id;
+                updatedTimelineDataFromAI.ownerId = this.state.timeline!.ownerId;
+                updatedTimelineDataFromAI.members = this.state.timeline!.members;
+                const finalUpdatedTimeline = this.postProcessTimelineData(updatedTimelineDataFromAI);
+
+                const diff = (this as any).computeTimelineDiff(this.state.timeline!, finalUpdatedTimeline);
 
                 if (diff.size > 0) {
-                    const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText, isProposal: true }];
-                    this.setState({ pendingTimeline: { data: updatedTimeline, diff }, chatHistory: finalHistory });
+                    const finalHistory = [...currentChatHistory, { role: 'model' as const, text: result.responseText, isProposal: true }];
+                    this.setState({ pendingTimeline: { data: finalUpdatedTimeline, diff }, chatHistory: finalHistory });
                 } else {
-                    const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText }];
+                    const finalHistory = [...currentChatHistory, { role: 'model' as const, text: result.responseText }];
                     this.setState({ chatHistory: finalHistory });
                 }
             } else {
-                 const finalHistory = [...this.state.chatHistory, { role: 'model' as const, text: result.responseText }];
+                 const finalHistory = [...currentChatHistory, { role: 'model' as const, text: result.responseText }];
                  this.setState({ chatHistory: finalHistory });
             }
         }
     } catch (error) {
         console.error("智能助理出错:", error);
-        const errorHistory = [...this.state.chatHistory, { role: 'model' as const, text: "抱歉，理解您的指令时遇到了些问题，请您换一种方式描述，或者稍后再试。这可能是由于 API 密钥无效或网络问题导致。" }];
+        const errorHistory = [...currentChatHistory, { role: 'model' as const, text: "抱歉，理解您的指令时遇到了些问题，请您换一种方式描述，或者稍后再试。这可能是由于 API 密钥无效或网络问题导致。" }];
         this.setState({ chatHistory: errorHistory });
     } finally {
         this.setState({ isChatLoading: false });

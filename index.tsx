@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
     时间轴数据, AppState, CurrentUser, Indices, 任务, 评论, TopLevelIndices, 
-    ProjectMember, User, ITimelineApp, ProjectMemberRole, ChatMessage 
+    ProjectMember, User, ITimelineApp, ProjectMemberRole, ChatMessage, TaskDiff 
 } from './types.js';
 import * as api from './api.js';
 import { decodeJwtPayload } from './utils.js';
@@ -18,7 +18,6 @@ export class TimelineApp implements ITimelineApp {
     projectsHistory: [],
     timeline: null,
     previousTimelineState: null,
-    // FIX: Initialize pendingTimeline to null to match AppState type
     pendingTimeline: null,
     isLoading: false,
     loadingText: "项目初始化中...",
@@ -104,6 +103,7 @@ export class TimelineApp implements ITimelineApp {
   public uploadFilesBtn: HTMLButtonElement;
   public projectFilesInput: HTMLInputElement;
   public filePreviewContainer: HTMLElement;
+  public aiChangesConfirmBar: HTMLElement;
 
 
   constructor() {
@@ -458,7 +458,7 @@ export class TimelineApp implements ITimelineApp {
 
     public handleLoadProject(project: 时间轴数据): void {
         if(project) {
-            this.setState({ timeline: project, currentView: 'vertical', chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null });
+            this.setState({ timeline: project, currentView: 'vertical', chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null, pendingTimeline: null });
         }
     }
 
@@ -516,6 +516,7 @@ export class TimelineApp implements ITimelineApp {
             chatHistory: historyForResubmission,
             lastUserMessage: userMessageToResend,
             previousTimelineState: null,
+            pendingTimeline: null,
         });
     
         await handlers.submitChat.call(this, userMessageToResend);
@@ -580,6 +581,79 @@ export class TimelineApp implements ITimelineApp {
 
             this.filePreviewContainer.appendChild(itemEl);
         });
+    }
+
+    private computeTimelineDiff(oldTimeline: 时间轴数据, newTimeline: 时间轴数据): Map<string, TaskDiff> {
+        const diff = new Map<string, TaskDiff>();
+        const oldTasks = new Map<string, { task: 任务, parentPath: string }>();
+        const newTasks = new Map<string, { task: 任务, parentPath: string }>();
+    
+        const flatten = (timeline: 时间轴数据, map: Map<string, { task: 任务, parentPath: string }>) => {
+            const traverse = (tasks: 任务[], path: string[]) => {
+                if (!tasks) return;
+                tasks.forEach(task => {
+                    map.set(task.id, { task, parentPath: path.join(' > ') });
+                    if (task.子任务) traverse(task.子任务, [...path, task.任务名称]);
+                });
+            };
+            timeline.阶段.forEach(phase => {
+                const phasePath = [phase.阶段名称];
+                if (phase.任务) traverse(phase.任务, phasePath);
+                if (phase.项目) {
+                    phase.项目.forEach(proj => {
+                        const projPath = [...phasePath, proj.项目名称];
+                        if (proj.任务) traverse(proj.任务, projPath);
+                    });
+                }
+            });
+        };
+    
+        flatten(oldTimeline, oldTasks);
+        flatten(newTimeline, newTasks);
+    
+        for (const [id, oldData] of oldTasks.entries()) {
+            const newData = newTasks.get(id);
+            if (!newData) {
+                diff.set(id, { status: 'deleted', oldTask: oldData.task, parentPath: oldData.parentPath });
+            } else {
+                const changes: { [key in keyof 任务]?: { from: any, to: any } } = {};
+                let modified = false;
+                // A limited set of keys to check for simplicity and relevance.
+                const keysToCheck: (keyof 任务)[] = ['任务名称', '状态', '优先级', '详情', '开始时间', '截止日期', '负责人Ids', '备注', 'dependencies'];
+                for (const key of keysToCheck) {
+                    const oldVal = JSON.stringify(oldData.task[key]);
+                    const newVal = JSON.stringify(newData.task[key]);
+                    if (oldVal !== newVal) {
+                        modified = true;
+                        changes[key] = { from: oldData.task[key] || '', to: newData.task[key] || '' };
+                    }
+                }
+                if (modified) {
+                    diff.set(id, { status: 'modified', oldTask: oldData.task, newTask: newData.task, changes, parentPath: newData.parentPath });
+                }
+            }
+        }
+    
+        for (const [id, newData] of newTasks.entries()) {
+            if (!oldTasks.has(id)) {
+                diff.set(id, { status: 'added', newTask: newData.task, parentPath: newData.parentPath });
+            }
+        }
+    
+        return diff;
+    }
+
+    public async handleAcceptAiChanges(): Promise<void> {
+        if (!this.state.pendingTimeline) return;
+        const timelineToSave = this.state.pendingTimeline.data;
+        this.clearUndoState();
+        await this.saveCurrentProject(timelineToSave);
+        this.setState({ pendingTimeline: null });
+    }
+
+    public handleRejectAiChanges(): void {
+        if (!this.state.pendingTimeline) return;
+        this.setState({ pendingTimeline: null });
     }
 
     private formatInlineMarkdown(text: string): string {
@@ -688,22 +762,26 @@ export class TimelineApp implements ITimelineApp {
         }
         this.chatSendBtn.disabled = this.state.isChatLoading;
         renderUI.renderUserDisplay(this);
-        if (this.state.timeline) {
+
+        const timelineData = this.state.pendingTimeline ? this.state.pendingTimeline.data : this.state.timeline;
+
+        if (timelineData) {
             this.inputSection.classList.add("hidden");
             this.timelineSection.classList.remove("hidden");
             setTimeout(() => this.timelineSection.classList.add('visible'), 10);
             const userRole = this.getUserRole();
-            const readOnly = userRole === 'Viewer';
+            const readOnly = userRole === 'Viewer' || !!this.state.pendingTimeline;
             this.projectNameEl.innerHTML = '';
-            this.projectNameEl.appendChild(renderUI.createEditableElement(this, 'h2', this.state.timeline.项目名称, {}, '项目名称'));
+            this.projectNameEl.appendChild(renderUI.createEditableElement(this, 'h2', timelineData.项目名称, {}, '项目名称'));
             if (readOnly) {
                 const badge = document.createElement('span');
                 badge.className = 'readonly-badge';
-                badge.textContent = '只读模式';
+                badge.textContent = !!this.state.pendingTimeline ? '审核模式' : '只读模式';
                 this.projectNameEl.appendChild(badge);
             }
             renderUI.renderSaveStatusIndicator(this);
             this.shareBtn.style.display = userRole === 'Viewer' ? 'none' : 'inline-flex';
+            this.aiChangesConfirmBar.classList.toggle('hidden', !this.state.pendingTimeline);
             renderUI.renderViewSwitcher(this);
             renderUI.renderViewSpecificControls(this);
             renderUI.renderFilterSortControls(this);
@@ -714,6 +792,7 @@ export class TimelineApp implements ITimelineApp {
             this.inputSection.classList.remove("hidden");
             this.timelineSection.classList.add("hidden");
             this.timelineSection.classList.remove('visible');
+            this.aiChangesConfirmBar.classList.add('hidden');
             renderUI.renderHomeScreen(this);
         }
     }
@@ -724,20 +803,23 @@ export class TimelineApp implements ITimelineApp {
     }
 
     public getUserRole(): ProjectMemberRole | null {
-        if (!this.state.currentUser || !this.state.timeline) return null;
-        if (this.state.timeline.ownerId === this.state.currentUser.id) return 'Admin';
-        const member = this.state.timeline.members.find(m => m.userId === this.state.currentUser!.id);
+        const currentTimeline = this.state.pendingTimeline ? this.state.pendingTimeline.data : this.state.timeline;
+        if (!this.state.currentUser || !currentTimeline) return null;
+        if (currentTimeline.ownerId === this.state.currentUser.id) return 'Admin';
+        const member = currentTimeline.members.find(m => m.userId === this.state.currentUser!.id);
         return member ? member.role : null;
     }
 
     public canEditProject(): boolean {
+        if (this.state.pendingTimeline) return false;
         const role = this.getUserRole();
         return role === 'Admin' || role === 'Editor';
     }
 
     public *flattenTasks(): Generator<{ task: 任务; indices: Indices; path: string[] }> {
-        if (!this.state.timeline) return;
-        for (const [phaseIndex, phase] of this.state.timeline.阶段.entries()) {
+        const timelineData = this.state.pendingTimeline ? this.state.pendingTimeline.data : this.state.timeline;
+        if (!timelineData) return;
+        for (const [phaseIndex, phase] of timelineData.阶段.entries()) {
             if (phase.项目) {
                 for (const [projectIndex, project] of phase.项目.entries()) {
                     const taskIterator = this._taskIterator(project.任务, { phaseIndex, projectIndex }, [phase.阶段名称, project.项目名称]);

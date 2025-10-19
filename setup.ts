@@ -56,6 +56,7 @@ export function cacheDOMElements(app: ITimelineApp): void {
     app.uploadFilesBtn = document.getElementById('upload-files-btn') as HTMLButtonElement;
     app.projectFilesInput = document.getElementById('project-files-input') as HTMLInputElement;
     app.filePreviewContainer = document.getElementById('file-preview-container')!;
+    app.aiChangesConfirmBar = document.getElementById('ai-changes-confirm-bar')!;
 }
 
 export function addEventListeners(app: ITimelineApp): void {
@@ -141,7 +142,6 @@ export function addEventListeners(app: ITimelineApp): void {
     app.apiKeyForm.addEventListener('submit', handlers.handleApiKeySubmit.bind(app));
 
     // AI Changes Confirmation Bar Listeners
-    const confirmBar = document.getElementById('ai-changes-confirm-bar')!;
-    confirmBar.querySelector('#ai-accept-btn')!.addEventListener('click', () => (app as any).handleAcceptAiChanges());
-    confirmBar.querySelector('#ai-reject-btn')!.addEventListener('click', () => (app as any).handleRejectAiChanges());
+    app.aiChangesConfirmBar.querySelector('#ai-accept-btn')!.addEventListener('click', () => app.handleAcceptAiChanges());
+    app.aiChangesConfirmBar.querySelector('#ai-reject-btn')!.addEventListener('click', () => app.handleRejectAiChanges());
 }

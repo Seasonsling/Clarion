@@ -1,10 +1,29 @@
-// FIX: Import getWeekStartDate from utils to make it available for the workload view.
 import { parseDate, getWeekStartDate } from './utils.js';
 import type { ITimelineApp, 阶段, 任务, TopLevelIndices, Indices } from './types.js';
 import { renderUI } from './ui.js';
 
+const escapeHtml = (unsafe: any) => {
+    if (typeof unsafe !== 'string') {
+        try {
+            const str = JSON.stringify(unsafe, null, 2);
+            if (str && str.length > 50) return str.substring(0, 50) + '...';
+            return str || '';
+        } catch {
+            return '';
+        }
+    }
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+
 function renderVerticalTimeline(app: ITimelineApp, phases: 阶段[]): void {
-    const canEdit = app.canEditProject();
+    const isDiffView = !!app.state.pendingTimeline;
+    const canEdit = app.canEditProject(); // This now correctly returns false in diff view
+
     phases.forEach((phase, phaseIndex) => {
         const phaseId = `phase-${phaseIndex}`;
         const isCollapsed = app.state.collapsedItems.has(phaseId);
@@ -76,16 +95,29 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
     const listContainer = document.createElement('div');
     const tasksList = document.createElement("ul");
     tasksList.className = "tasks-list";
+    
+    const isDiffView = !!app.state.pendingTimeline;
+    const diffMap = app.state.pendingTimeline?.diff;
+    const isEditable = canEdit && !isDiffView;
+
     const processedTasks = app.processTaskArray(tasks);
+    
     processedTasks.forEach((task) => {
         const currentPath = [...parentPath, task.originalIndex!];
         const fullIndices: Indices = { ...baseIndices, phaseIndex: baseIndices.phaseIndex!, taskPath: currentPath };
         const taskEl = document.createElement("li");
+        
+        const taskDiff = diffMap?.get(task.id);
+        
         taskEl.className = "task-item";
         if (task.优先级) taskEl.dataset.priority = task.优先级;
         taskEl.classList.toggle("completed", task.已完成);
-        taskEl.draggable = canEdit;
-        if (canEdit) {
+        taskEl.draggable = isEditable;
+
+        if (taskDiff?.status === 'added') taskEl.classList.add('diff-added');
+        if (taskDiff?.status === 'modified') taskEl.classList.add('diff-modified');
+
+        if (isEditable) {
             taskEl.addEventListener('dragstart', (e) => {
                 e.stopPropagation();
                 taskEl.classList.add('dragging');
@@ -121,6 +153,7 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
                 } catch (err) { console.error("Drop failed:", err); }
             });
         }
+        
         const taskHeader = document.createElement('div');
         taskHeader.className = 'task-header';
         const taskMain = document.createElement('div');
@@ -128,22 +161,28 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.checked = task.已完成;
-        checkbox.disabled = !canEdit;
+        checkbox.disabled = !isEditable;
         checkbox.addEventListener('change', (e) => {
             const isChecked = (e.target as HTMLInputElement).checked;
             app.handleToggleComplete(fullIndices, isChecked);
             if (isChecked) triggerCompletionAnimation(taskEl);
         });
         taskMain.appendChild(checkbox);
+        
         const label = document.createElement('label');
-        label.textContent = task.任务名称;
+        const nameChange = taskDiff?.changes?.['任务名称'];
+        label.innerHTML = nameChange ? `<span class="field-changed" title="之前: ${escapeHtml(nameChange.from)}">${escapeHtml(task.任务名称)}</span>` : escapeHtml(task.任务名称);
         taskMain.appendChild(label);
         taskHeader.appendChild(taskMain);
+        
         const taskActions = document.createElement('div');
         taskActions.className = 'task-actions';
         const statusMap: {[key: string]: string} = { '待办': 'todo', '进行中': 'inprogress', '已完成': 'completed'};
-        taskActions.innerHTML = `<span class="status-tag status-${statusMap[task.状态] || 'todo'}">${task.状态}</span>`;
-        if (canEdit) {
+        const statusChange = taskDiff?.changes?.['状态'];
+        const statusHTML = statusChange ? `<span class="field-changed" title="之前: ${escapeHtml(statusChange.from)}">${escapeHtml(task.状态)}</span>` : escapeHtml(task.状态);
+        taskActions.innerHTML = `<span class="status-tag status-${statusMap[task.状态] || 'todo'}">${statusHTML}</span>`;
+        
+        if (isEditable) {
             const addSubtaskBtn = document.createElement('button');
             addSubtaskBtn.className = 'icon-btn';
             addSubtaskBtn.title = '添加子任务';
@@ -153,11 +192,11 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
         }
         const editBtn = document.createElement('button');
         editBtn.className = 'icon-btn';
-        editBtn.title = '编辑任务';
+        editBtn.title = '编辑/查看任务';
         editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
         editBtn.onclick = () => app.showEditModal(fullIndices, task);
         taskActions.appendChild(editBtn);
-        if (canEdit) {
+        if (isEditable) {
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'icon-btn delete-btn';
             deleteBtn.title = '删除任务';
@@ -167,39 +206,72 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
         }
         taskHeader.appendChild(taskActions);
         taskEl.appendChild(taskHeader);
+
         const taskBody = document.createElement('div');
         taskBody.className = 'task-body';
-        if (task.详情) {
-            const detailsEl = document.createElement('p');
-            detailsEl.className = 'task-details';
-            detailsEl.textContent = task.详情;
-            taskBody.appendChild(detailsEl);
-        }
+        
+        const renderField = (currentValue: any, fieldName: keyof 任务, element: 'p' | 'div', className: string, titlePrefix = '') => {
+            if (!currentValue && typeof currentValue !== 'boolean') return null;
+            const el = document.createElement(element);
+            el.className = className;
+            const change = taskDiff?.changes?.[fieldName];
+            const escapedValue = escapeHtml(currentValue);
+            const escapedOldValue = change ? escapeHtml(change.from) : '';
+            
+            let content = '';
+            if (Array.isArray(currentValue)) {
+                if (currentValue.length === 0) return null;
+                if (fieldName === '负责人Ids') {
+                    content = currentValue.map(id => renderUI.renderUserAvatar(app, id)).join('');
+                    el.classList.add('assignee-avatars');
+                } else {
+                    content = currentValue.join(', ');
+                }
+            } else {
+                content = escapedValue;
+            }
+
+            el.innerHTML = change
+                ? `<span class="field-changed" title="之前: ${escapedOldValue}">${titlePrefix}${content}</span>`
+                : `${titlePrefix}${content}`;
+
+            return el;
+        };
+        
+        const detailsEl = renderField(task.详情, '详情', 'p', 'task-details');
+        if (detailsEl) taskBody.appendChild(detailsEl);
+        
         const metaEl = document.createElement('div');
         metaEl.className = 'task-meta';
-        if (task.开始时间 || task.截止日期) {
-            let dateText = '';
-            if (task.开始时间) dateText += `⏱️ ${task.开始时间}`;
-            if (task.开始时间 && task.截止日期) dateText += ' → ';
-            if (task.截止日期) dateText += `🏁 ${task.截止日期}`;
+
+        let dateText = '';
+        if (task.开始时间) dateText += `⏱️ ${task.开始时间}`;
+        if (task.开始时间 && task.截止日期) dateText += ' → ';
+        if (task.截止日期) dateText += `🏁 ${task.截止日期}`;
+        
+        if (dateText) {
             const dateSpan = document.createElement('span');
-            dateSpan.textContent = dateText;
+            const startTimeChange = taskDiff?.changes?.['开始时间'];
+            const deadlineChange = taskDiff?.changes?.['截止日期'];
+            if(startTimeChange || deadlineChange) {
+                 const oldDateText = `之前: ${startTimeChange ? `⏱️ ${escapeHtml(startTimeChange.from)}` : `⏱️ ${escapeHtml(task.开始时间)}`} → ${deadlineChange ? `🏁 ${escapeHtml(deadlineChange.from)}` : `🏁 ${escapeHtml(task.截止日期)}`}`;
+                 dateSpan.innerHTML = `<span class="field-changed" title="${oldDateText}">${dateText}</span>`;
+            } else {
+                dateSpan.textContent = dateText;
+            }
             metaEl.appendChild(dateSpan);
         }
-        if (task.负责人Ids && task.负责人Ids.length > 0) {
-            const assigneeSpan = document.createElement('div');
-            assigneeSpan.className = 'assignee-avatars';
-            task.负责人Ids.forEach(id => assigneeSpan.innerHTML += renderUI.renderUserAvatar(app, id));
-            metaEl.appendChild(assigneeSpan);
-        }
+
+        const assigneesEl = renderField(task.负责人Ids, '负责人Ids', 'div', '');
+        if (assigneesEl) metaEl.appendChild(assigneesEl);
+
         if (metaEl.hasChildNodes()) taskBody.appendChild(metaEl);
-        if (task.备注) {
-            const notesEl = document.createElement('p');
-            notesEl.className = 'task-notes';
-            notesEl.textContent = `备注: ${task.备注}`;
-            taskBody.appendChild(notesEl);
-        }
+        
+        const notesEl = renderField(task.备注, '备注', 'p', 'task-notes', '备注: ');
+        if (notesEl) taskBody.appendChild(notesEl);
+        
         if (taskBody.hasChildNodes()) taskEl.appendChild(taskBody);
+        
         const discussionContainer = document.createElement('div');
         discussionContainer.className = 'task-discussion';
         const toggleBtn = document.createElement('button');
@@ -222,7 +294,7 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
         const newCommentForm = document.createElement('form');
         newCommentForm.className = 'new-comment-form';
         newCommentForm.innerHTML = `${renderUI.renderUserAvatar(app, app.state.currentUser!.id)}<textarea placeholder="添加评论..." rows="1" required></textarea><button type="submit" class="primary-btn">发布</button>`;
-        if (!canEdit) {
+        if (!isEditable) {
             newCommentForm.querySelector('textarea')!.disabled = true;
             newCommentForm.querySelector('button')!.disabled = true;
         }
@@ -242,8 +314,9 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
         if (task.子任务 && task.子任务.length > 0) taskEl.appendChild(createTasksList(app, task.子任务, baseIndices, currentPath, canEdit));
         tasksList.appendChild(taskEl);
     });
+
     listContainer.appendChild(tasksList);
-    if (canEdit) {
+    if (isEditable) {
         const addBtn = document.createElement('button');
         addBtn.className = 'add-task-btn';
         addBtn.textContent = '+ 添加任务';
@@ -602,11 +675,12 @@ function renderDependencyMap(app: ITimelineApp): void {
 }
 
 function renderMindMap(app: ITimelineApp): void {
-    if (!app.state.timeline) return;
+    const timelineData = app.state.pendingTimeline ? app.state.pendingTimeline.data : app.state.timeline;
+    if (!timelineData) return;
     interface MindMapNode { id: string; name: string; type: string; data: any; indices?: Indices; children: MindMapNode[]; parent?: MindMapNode; x: number; y: number; subtreeHeight: number; }
     const NODE_WIDTH = 220, NODE_HEIGHT = 50, HORIZONTAL_GAP = 80, VERTICAL_GAP = 20;
-    const root: MindMapNode = { id: 'root', name: app.state.timeline!.项目名称, type: 'project', data: app.state.timeline, children: [], x: 0, y: 0, subtreeHeight: 0 };
-    app.state.timeline!.阶段.forEach((phase, phaseIndex) => {
+    const root: MindMapNode = { id: 'root', name: timelineData.项目名称, type: 'project', data: timelineData, children: [], x: 0, y: 0, subtreeHeight: 0 };
+    timelineData.阶段.forEach((phase, phaseIndex) => {
         const phaseNode: MindMapNode = { id: `phase-${phaseIndex}`, name: phase.阶段名称, type: 'phase', data: phase, children: [], parent: root, x: 0, y: 0, subtreeHeight: 0 };
         root.children.push(phaseNode);
         const processTasks = (tasks: 任务[], baseIndices: TopLevelIndices, parentNode: MindMapNode, parentPath: number[]) => {
@@ -721,8 +795,16 @@ export function renderView(app: ITimelineApp) {
         app.timelineContainer.className = `${app.state.currentView}-view`;
     }
     
+    const timelineData = app.state.pendingTimeline ? app.state.pendingTimeline.data : app.state.timeline;
+    if (!timelineData) {
+        if (app.state.currentView !== 'dependencies') {
+            app.timelineContainer.innerHTML = "";
+        }
+        return;
+    }
+    
     switch(app.state.currentView) {
-      case 'vertical': renderVerticalTimeline(app, app.state.timeline!.阶段); break;
+      case 'vertical': renderVerticalTimeline(app, timelineData.阶段); break;
       case 'gantt': renderGanttChart(app); break;
       case 'kanban': renderKanban(app); break;
       case 'calendar': renderCalendar(app); break;
