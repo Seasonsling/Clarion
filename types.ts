@@ -28,10 +28,18 @@ export interface ProjectMember {
 }
 
 // --- Data Interfaces for the timeline (in Chinese) ---
+export interface CommentAttachment {
+  name: string;
+  url: string; // For images, this will be a data URL. For others, a placeholder.
+  mimeType: string;
+}
+
 export interface 评论 {
+  id: string; // Unique ID for each comment
   发言人Id: string; // Changed from string to userId
   内容: string;
   时间戳: string;
+  attachments?: CommentAttachment[]; // Support for file attachments
 }
 
 export type TaskStatus = '待办' | '进行中' | '已完成';

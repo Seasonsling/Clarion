@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
     时间轴数据, AppState, CurrentUser, Indices, 任务, 评论, TopLevelIndices, 
-    ProjectMember, User, ITimelineApp, ProjectMemberRole, ChatMessage, TaskDiff, ChatModel 
+    ProjectMember, User, ITimelineApp, ProjectMemberRole, ChatMessage, TaskDiff, ChatModel, CommentAttachment 
 } from './types.js';
 import * as api from './api.js';
 import { decodeJwtPayload } from './utils.js';
@@ -48,6 +48,7 @@ export class TimelineApp implements ITimelineApp {
   };
   
   public projectCreationFiles: File[] = [];
+  public commentAttachments = new Map<string, File[]>();
 
   public ai: GoogleGenAI;
 
@@ -405,20 +406,74 @@ export class TimelineApp implements ITimelineApp {
     
     public async handleAddComment(indices: Indices, content: string): Promise<void> {
         this.clearUndoState();
-        if (!content.trim() || !this.state.currentUser) return;
         const result = this.getTaskFromPath(indices);
+        const pendingFiles = result ? this.commentAttachments.get(result.task.id) || [] : [];
+        if ((!content.trim() && pendingFiles.length === 0) || !this.state.currentUser) return;
+    
         if (result && this.state.timeline) {
             const task = result.task;
             if (!task.讨论) task.讨论 = [];
+    
             const newComment: 评论 = {
+                id: `comment-${Date.now()}`,
                 发言人Id: this.state.currentUser.id,
                 内容: content,
                 时间戳: new Date().toISOString(),
+                attachments: []
             };
+    
+            // TODO: Replace this with a proper backend upload mechanism.
+            // Direct WebDAV from frontend is insecure and blocked by CORS.
+            // This simulation uses data URLs for images and placeholders for other files.
+            for (const file of pendingFiles) {
+                let url = '#'; // Placeholder URL
+                if (file.type.startsWith('image/')) {
+                    url = await new Promise(resolve => {
+                        const reader = new FileReader();
+                        reader.onload = e => resolve(e.target!.result as string);
+                        reader.readAsDataURL(file);
+                    });
+                }
+                newComment.attachments!.push({
+                    name: file.name,
+                    url: url,
+                    mimeType: file.type,
+                });
+            }
+    
             task.讨论.push(newComment);
+            this.commentAttachments.delete(task.id); // Clear pending files for this task
             await this.saveCurrentProject(this.state.timeline);
         }
     }
+    
+    public async handleDeleteComment(indices: Indices, commentId: string): Promise<void> {
+        this.clearUndoState();
+        if (!confirm("确定要删除这条评论吗？")) return;
+        const result = this.getTaskFromPath(indices);
+        if (result && this.state.timeline && result.task.讨论) {
+            const commentIndex = result.task.讨论.findIndex(c => c.id === commentId);
+            if (commentIndex > -1) {
+                result.task.讨论.splice(commentIndex, 1);
+                await this.saveCurrentProject(this.state.timeline);
+            }
+        }
+    }
+
+    public async handleEditComment(indices: Indices, commentId: string, newContent: string): Promise<void> {
+        this.clearUndoState();
+        const result = this.getTaskFromPath(indices);
+        if (result && this.state.timeline && result.task.讨论) {
+            const comment = result.task.讨论.find(c => c.id === commentId);
+            if (comment && comment.内容 !== newContent) {
+                comment.内容 = newContent;
+                await this.saveCurrentProject(this.state.timeline);
+            } else {
+                this.render(); // Re-render to hide edit form if content is unchanged
+            }
+        }
+    }
+
 
     private async handleMoveTask(draggedIndices: Indices, dropIndices: Indices, position: 'before' | 'after'): Promise<void> {
         this.clearUndoState();
