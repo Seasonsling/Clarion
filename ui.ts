@@ -574,31 +574,44 @@ function showMembersModal(app: ITimelineApp): void {
     setTimeout(() => modalOverlay.classList.add('visible'), 10);
 }
 
-function showReportModal(app: ITimelineApp, isLoading: boolean, reportText: string = ''): void {
+function showReportModal(app: ITimelineApp, isLoading: boolean, reportText: string = '', title?: string): void {
     document.getElementById('report-modal-overlay')?.remove();
     const modalOverlay = document.createElement('div');
     modalOverlay.id = 'report-modal-overlay';
     modalOverlay.className = 'modal-overlay';
-    const safeReportText = reportText.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    
+    // Use a simple markdown to HTML converter for better formatting
+    const formattedReport = reportText
+        .replace(/### (.*?)\n/g, '<h3>$1</h3>')
+        .replace(/● (.*?)\n/g, '<h4>$1</h4>')
+        .replace(/(\d+\.)/g, '<br><strong>$1</strong>')
+        .replace(/○ (.*?)\n/g, '<p style="padding-left: 1em;">&bull; $1</p>')
+        .replace(/■ (.*?)\n/g, '<p style="padding-left: 2em; font-style: italic;">&rarr; $1</p>')
+        .replace(/\n/g, '<br>');
+
     const contentHTML = isLoading
-        ? `<div class="modal-body loading-state"><div class="spinner"></div><p>报告生成中，请稍候...</p></div>`
-        : `<div class="modal-body"><pre class="report-content">${safeReportText}</pre></div><div class="modal-footer"><button type="button" class="secondary-btn copy-btn">复制内容</button><button type="button" class="primary-btn close-btn">关闭</button></div>`;
-    modalOverlay.innerHTML = `<div class="modal-content report-modal"><div class="modal-header"><h2>项目状态报告</h2><button class="modal-close-btn close-btn">&times;</button></div>${contentHTML}</div>`;
+        ? `<div class="modal-body loading-state"><div class="spinner"></div><p>${title || '报告'}生成中，请稍候...</p></div>`
+        : `<div class="modal-body"><div class="report-content">${formattedReport}</div></div><div class="modal-footer"><button type="button" class="secondary-btn copy-btn">复制原文</button><button type="button" class="primary-btn close-btn">关闭</button></div>`;
+    
+    modalOverlay.innerHTML = `<div class="modal-content report-modal"><div class="modal-header"><h2>${title || '项目状态报告'}</h2><button class="modal-close-btn close-btn">&times;</button></div>${contentHTML}</div>`;
     document.body.appendChild(modalOverlay);
+
     const close = () => modalOverlay.remove();
     modalOverlay.querySelectorAll('.close-btn').forEach(btn => btn.addEventListener('click', close));
     modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) close(); });
+    
     if (!isLoading) {
         const copyBtn = modalOverlay.querySelector('.copy-btn') as HTMLButtonElement;
         copyBtn.addEventListener('click', () => {
             navigator.clipboard.writeText(reportText).then(() => {
                 copyBtn.textContent = '已复制!';
-                setTimeout(() => { copyBtn.textContent = '复制内容'; }, 2000);
+                setTimeout(() => { copyBtn.textContent = '复制原文'; }, 2000);
             });
         });
     }
     setTimeout(() => modalOverlay.classList.add('visible'), 10);
 }
+
 
 export const renderUI = {
     renderAuth,

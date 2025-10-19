@@ -84,8 +84,12 @@ export function addEventListeners(app: ITimelineApp): void {
         const target = e.target as HTMLElement;
         const button = target.closest('button[data-period]');
         if (button) {
-            const period = button.getAttribute('data-period') as 'weekly' | 'monthly';
-            handlers.handleGenerateReportClick.call(app, period);
+            const action = button.getAttribute('data-period');
+            if (action === 'weekly' || action === 'monthly') {
+                handlers.handleGenerateReportClick.call(app, action);
+            } else if (action === 'plan') {
+                handlers.handleGeneratePlanClick.call(app);
+            }
             app.reportDropdown.classList.add('hidden');
         }
     });
