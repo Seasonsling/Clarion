@@ -30,6 +30,7 @@ export class TimelineApp implements ITimelineApp {
     lastUserMessage: null,
     chatAttachment: null,
     chatModel: 'gemini-flash',
+    editingMessageIndex: null,
     filters: {
       status: [],
       priority: [],
@@ -97,6 +98,7 @@ export class TimelineApp implements ITimelineApp {
   public chatAttachmentInput: HTMLInputElement;
   public chatAttachmentPreview: HTMLElement;
   public chatModelSelectorContainer: HTMLElement;
+  public chatFormModelSelector: HTMLSelectElement;
   public apiKeyModalOverlay: HTMLElement;
   public apiKeyForm: HTMLFormElement;
   public apiKeyInput: HTMLInputElement;
@@ -505,18 +507,23 @@ export class TimelineApp implements ITimelineApp {
         renderUI.showEditModal(this, indices, task);
     }
     
-    public async handleRegenerateClick(modelMessageIndex: number): Promise<void> {
+    public async handleRegenerateClick(this: ITimelineApp, modelMessageIndex: number): Promise<void> {
         if (this.state.isChatLoading) return;
-        
+    
         const userMessageToResend = this.state.chatHistory[modelMessageIndex - 1];
         if (!userMessageToResend || userMessageToResend.role !== 'user') {
             console.error("Cannot regenerate: preceding user message not found.");
             return;
         }
     
+        // If we are regenerating, exit any editing state
+        if (this.state.editingMessageIndex !== null) {
+            this.setState({ editingMessageIndex: null }, false); 
+        }
+
         const historyForResubmission = this.state.chatHistory.slice(0, modelMessageIndex);
-        this.setState({ 
-            isChatLoading: true, 
+        this.setState({
+            isChatLoading: true,
             chatHistory: historyForResubmission,
             lastUserMessage: userMessageToResend,
             previousTimelineState: null,
@@ -524,6 +531,57 @@ export class TimelineApp implements ITimelineApp {
         });
     
         await handlers.submitChat.call(this, userMessageToResend, historyForResubmission);
+    }
+
+    public handleEditChatMessage(messageIndex: number): void {
+        this.setState({ editingMessageIndex: messageIndex });
+    }
+
+    public async handleSaveChatEdit(messageIndex: number, newText: string): Promise<void> {
+        const history = [...this.state.chatHistory];
+        const userMessageToEdit = history[messageIndex];
+    
+        if (!userMessageToEdit || userMessageToEdit.role !== 'user' || userMessageToEdit.text === newText) {
+            this.setState({ editingMessageIndex: null });
+            return; // No change, or not a user message, so just exit editing.
+        }
+    
+        // Update the message text
+        userMessageToEdit.text = newText;
+    
+        // The AI's response is now invalid, so we truncate the history right after the edited message.
+        const historyForResubmission = history.slice(0, messageIndex + 1);
+        
+        this.setState({ 
+            editingMessageIndex: null,
+            isChatLoading: true,
+            chatHistory: historyForResubmission,
+            lastUserMessage: userMessageToEdit,
+            previousTimelineState: null,
+            pendingTimeline: null,
+        });
+    
+        await handlers.submitChat.call(this, userMessageToEdit, historyForResubmission);
+    }
+
+    public handleDeleteChatMessage(messageIndex: number): void {
+        if (!confirm("确定要删除此对话回合吗？")) return;
+    
+        const newHistory = [...this.state.chatHistory];
+        // A "turn" consists of a user message and potentially a model response.
+        // We delete the user message (at messageIndex) and the following model message.
+        if (newHistory[messageIndex]?.role === 'user' && newHistory[messageIndex + 1]?.role === 'model') {
+            newHistory.splice(messageIndex, 2);
+        } else {
+            // If it's just a user message or something unexpected, only delete that one message.
+            newHistory.splice(messageIndex, 1);
+        }
+    
+        this.setState({ 
+            chatHistory: newHistory,
+            // If we were editing the message we just deleted, exit editing mode.
+            editingMessageIndex: this.state.editingMessageIndex === messageIndex ? null : this.state.editingMessageIndex 
+        });
     }
 
     public async handleUndo(): Promise<void> {

@@ -165,12 +165,16 @@ function renderChat(app: ITimelineApp): void {
         });
         app.chatModelSelectorContainer.appendChild(selectEl);
     }
+    
+    app.chatFormModelSelector.value = app.state.chatModel;
 
     app.chatHistoryEl.innerHTML = '';
     app.state.chatHistory.forEach((msg, index) => {
-        const msgEl = document.createElement('div');
-        msgEl.className = `chat-message-container`;
-        
+        const msgContainer = document.createElement('div');
+        msgContainer.className = `chat-message-container`;
+        msgContainer.classList.toggle('editing', app.state.editingMessageIndex === index);
+
+        // --- View Mode ---
         let attachmentHTML = '';
         if (msg.role === 'user' && msg.attachment) {
             if (msg.attachment.mimeType.startsWith('image/')) {
@@ -190,17 +194,18 @@ function renderChat(app: ITimelineApp): void {
                 ${attachmentHTML}
             </div>
         `;
-        msgEl.appendChild(messageCore);
+        msgContainer.appendChild(messageCore);
+
+        const actions = document.createElement('div');
+        actions.className = 'chat-message-actions';
 
         if (msg.role === 'model') {
-             if (msg.sources && msg.sources.length > 0) {
+            if (msg.sources && msg.sources.length > 0) {
                 const sourcesEl = document.createElement('div');
                 sourcesEl.className = 'chat-message-sources';
                 sourcesEl.innerHTML = `<h5>参考来源:</h5><ul>${msg.sources.map(s => `<li><a href="${s.uri}" target="_blank" rel="noopener noreferrer">${s.title || s.uri}</a></li>`).join('')}</ul>`;
-                msgEl.appendChild(sourcesEl);
+                msgContainer.appendChild(sourcesEl);
             }
-            const actions = document.createElement('div');
-            actions.className = 'chat-message-actions';
             const copyBtn = document.createElement('button');
             copyBtn.className = 'icon-btn';
             copyBtn.title = '复制';
@@ -210,12 +215,12 @@ function renderChat(app: ITimelineApp): void {
                 copyBtn.innerHTML = `✓`;
                 setTimeout(() => { copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`; }, 1500);
             };
+            actions.appendChild(copyBtn);
             const regenBtn = document.createElement('button');
             regenBtn.className = 'icon-btn';
             regenBtn.title = '重新生成';
             regenBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><polyline points="23 20 23 14 17 14"></polyline><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"></path></svg>`;
             regenBtn.onclick = () => app.handleRegenerateClick(index);
-            actions.appendChild(copyBtn);
             actions.appendChild(regenBtn);
             
             if (msg.isModification && index === app.state.chatHistory.length - 1 && app.state.previousTimelineState) {
@@ -225,10 +230,49 @@ function renderChat(app: ITimelineApp): void {
                 undoBtn.onclick = () => app.handleUndo();
                 actions.appendChild(undoBtn);
             }
-            
-            msgEl.appendChild(actions);
+        } else { // User message actions
+            const editBtn = document.createElement('button');
+            editBtn.className = 'icon-btn';
+            editBtn.title = '编辑';
+            editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
+            editBtn.onclick = () => app.handleEditChatMessage(index);
+            actions.appendChild(editBtn);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'icon-btn delete-btn';
+            deleteBtn.title = '删除';
+            deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+            deleteBtn.onclick = () => app.handleDeleteChatMessage(index);
+            actions.appendChild(deleteBtn);
         }
-        app.chatHistoryEl.appendChild(msgEl);
+        msgContainer.appendChild(actions);
+
+        // --- Edit Mode ---
+        if (app.state.editingMessageIndex === index) {
+            const editForm = document.createElement('form');
+            editForm.className = 'chat-edit-form';
+            const textarea = document.createElement('textarea');
+            textarea.value = msg.text;
+            setTimeout(() => textarea.focus(), 0);
+            const editActions = document.createElement('div');
+            editActions.className = 'chat-edit-actions';
+            editActions.innerHTML = `
+                <button type="button" class="secondary-btn cancel-edit">取消</button>
+                <button type="submit" class="primary-btn">保存并重新生成</button>
+            `;
+            editForm.appendChild(textarea);
+            editForm.appendChild(editActions);
+            editForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                app.handleSaveChatEdit(index, textarea.value.trim());
+            });
+            editActions.querySelector('.cancel-edit')!.addEventListener('click', () => {
+                app.setState({ editingMessageIndex: null });
+            });
+            msgContainer.appendChild(editForm);
+        }
+
+        app.chatHistoryEl.appendChild(msgContainer);
     });
 
     if (app.state.isChatLoading) {

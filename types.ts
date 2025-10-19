@@ -123,6 +123,7 @@ export interface AppState {
       mimeType: string;
   } | null;
   chatModel: ChatModel;
+  editingMessageIndex: number | null;
   filters: {
     status: TaskStatus[];
     priority: TaskPriority[];

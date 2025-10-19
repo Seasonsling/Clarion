@@ -345,7 +345,7 @@ Provide the report in a clean, readable format suitable for copying into an emai
 }
 
 export function toggleChat(this: ITimelineApp, open: boolean): void {
-    this.setState({ isChatOpen: open }, false);
+    this.setState({ isChatOpen: open, editingMessageIndex: null }, false);
     this.chatPanelEl.classList.toggle('open', open);
     this.chatBackdropEl.classList.toggle('hidden', !open);
     if (open) this.chatInputEl.focus();
@@ -379,10 +379,11 @@ export async function handleChatSubmit(this: ITimelineApp, e: Event): Promise<vo
         chatAttachment: null 
     });
     
-    await submitChat.call(this, newUserMessage, newHistory);
+    const modelForThisTurn = this.chatFormModelSelector.value || this.state.chatModel;
+    await submitChat.call(this, newUserMessage, newHistory, modelForThisTurn);
 }
 
-export async function submitChat(this: ITimelineApp, userMessage: ChatMessage, currentChatHistory: ChatMessage[]): Promise<void> {
+export async function submitChat(this: ITimelineApp, userMessage: ChatMessage, currentChatHistory: ChatMessage[], model: string): Promise<void> {
     if (!this.state.apiKey) {
         renderUI.showApiKeyModal(this, true);
         alert("请先提供您的 API 密钥。");
@@ -396,7 +397,7 @@ export async function submitChat(this: ITimelineApp, userMessage: ChatMessage, c
         
         if (isQuestion && !attachment) { // Simple Q&A, no attachment
             const response = await this.ai.models.generateContent({
-                model: this.state.chatModel,
+                model: model,
                 contents: `请根据您的知识和网络搜索结果，用中文回答以下问题。如果问题与提供的项目计划有关，请结合上下文回答。
 ---
 当前项目计划 (上下文参考):
@@ -456,7 +457,7 @@ ${JSON.stringify(this.state.timeline)}
             contents.push({ text: promptText });
 
             const response = await this.ai.models.generateContent({
-                model: this.state.chatModel,
+                model: model,
                 contents: { parts: contents },
                 config: { responseMimeType: "application/json", responseSchema: responseSchema },
             });
