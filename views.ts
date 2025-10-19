@@ -1,5 +1,5 @@
 import { parseDate, getWeekStartDate } from './utils.js';
-import type { ITimelineApp, 阶段, 任务, TopLevelIndices, Indices } from './types.js';
+import type { ITimelineApp, 阶段, 任务, TopLevelIndices, Indices, CommentAttachment } from './types.js';
 import { renderUI } from './ui.js';
 
 const escapeHtml = (unsafe: any) => {
@@ -272,46 +272,10 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
         
         if (taskBody.hasChildNodes()) taskEl.appendChild(taskBody);
         
-        const discussionContainer = document.createElement('div');
-        discussionContainer.className = 'task-discussion';
-        const toggleBtn = document.createElement('button');
-        toggleBtn.className = 'task-discussion-toggle';
-        toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> <span>${task.讨论?.length || 0} 条讨论</span>`;
-        const discussionArea = document.createElement('div');
-        discussionArea.className = 'task-discussion-area hidden';
-        const commentsList = document.createElement('ul');
-        commentsList.className = 'comments-list';
-        if (task.讨论) {
-            task.讨论.forEach(comment => {
-                const user = app.state.allUsers.find(u => u.id === comment.发言人Id);
-                const commentEl = document.createElement('li');
-                commentEl.className = 'comment-item';
-                const timestamp = new Date(comment.时间戳).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' });
-                commentEl.innerHTML = `<div class="comment-header">${renderUI.renderUserAvatar(app, comment.发言人Id)}<strong class="comment-author">${user?.profile.displayName || '未知用户'}</strong><span class="comment-timestamp">${timestamp}</span></div><p class="comment-content">${comment.内容}</p>`;
-                commentsList.appendChild(commentEl);
-            });
-        }
-        const newCommentForm = document.createElement('form');
-        newCommentForm.className = 'new-comment-form';
-        newCommentForm.innerHTML = `${renderUI.renderUserAvatar(app, app.state.currentUser!.id)}<textarea placeholder="添加评论..." rows="1" required></textarea><button type="submit" class="primary-btn">发布</button>`;
-        if (!isEditable) {
-            newCommentForm.querySelector('textarea')!.disabled = true;
-            newCommentForm.querySelector('button')!.disabled = true;
-        }
-        newCommentForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const textarea = newCommentForm.querySelector('textarea')!;
-            app.handleAddComment(fullIndices, textarea.value);
-            textarea.value = '';
-        });
-        newCommentForm.querySelector('textarea')?.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px'; });
-        discussionArea.appendChild(commentsList);
-        discussionArea.appendChild(newCommentForm);
-        toggleBtn.onclick = () => { discussionArea.classList.toggle('hidden'); toggleBtn.classList.toggle('active'); };
-        discussionContainer.appendChild(toggleBtn);
-        discussionContainer.appendChild(discussionArea);
-        taskEl.appendChild(discussionContainer);
+        taskEl.appendChild(createDiscussionElement(app, task, fullIndices, isEditable));
+        
         if (task.子任务 && task.子任务.length > 0) taskEl.appendChild(createTasksList(app, task.子任务, baseIndices, currentPath, canEdit));
+        
         tasksList.appendChild(taskEl);
     });
 
@@ -324,6 +288,245 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
         listContainer.appendChild(addBtn);
     }
     return listContainer;
+}
+
+
+function createDiscussionElement(app: ITimelineApp, task: 任务, indices: Indices, isEditable: boolean): HTMLElement {
+    const discussionContainer = document.createElement('div');
+    discussionContainer.className = 'task-discussion';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'task-discussion-toggle';
+    toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> <span>${task.讨论?.length || 0} 条讨论</span>`;
+
+    const discussionArea = document.createElement('div');
+    discussionArea.className = 'task-discussion-area hidden';
+    discussionArea.id = `discussion-area-${task.id}`;
+
+    toggleBtn.onclick = () => {
+        const wasHidden = discussionArea.classList.contains('hidden');
+        if (wasHidden) {
+            renderDiscussionContent(app, discussionArea, task, indices, isEditable);
+        }
+        discussionArea.classList.toggle('hidden');
+        toggleBtn.classList.toggle('active');
+    };
+
+    discussionContainer.appendChild(toggleBtn);
+    discussionContainer.appendChild(discussionArea);
+    return discussionContainer;
+}
+
+function renderDiscussionContent(app: ITimelineApp, container: HTMLElement, task: 任务, indices: Indices, isEditable: boolean) {
+    container.innerHTML = ''; // Clear previous content
+
+    // 1. Render existing comments
+    const commentsList = document.createElement('ul');
+    commentsList.className = 'comments-list';
+    (task.讨论 || []).forEach(comment => {
+        commentsList.appendChild(createCommentItem(app, comment, indices, isEditable));
+    });
+    container.appendChild(commentsList);
+
+    // 2. Render new comment form
+    container.appendChild(createNewCommentForm(app, task, indices, isEditable));
+}
+
+function createCommentItem(app: ITimelineApp, comment: any, indices: Indices, isEditable: boolean): HTMLLIElement {
+    const user = app.state.allUsers.find(u => u.id === comment.发言人Id);
+    const commentItem = document.createElement('li');
+    commentItem.className = 'comment-item';
+    const isOwner = app.state.currentUser?.id === comment.发言人Id;
+
+    const commentHeader = document.createElement('div');
+    commentHeader.className = 'comment-header';
+    commentHeader.innerHTML = `${renderUI.renderUserAvatar(app, comment.发言人Id)}<strong class="comment-author">${escapeHtml(user?.profile.displayName || '未知用户')}</strong><span class="comment-timestamp">${new Date(comment.时间戳).toLocaleString()}</span>`;
+
+    const commentBody = document.createElement('div');
+    commentBody.className = 'comment-body';
+
+    const renderBodyContent = () => {
+        commentBody.innerHTML = ''; // Clear for redraw
+        const commentContent = document.createElement('div');
+        commentContent.className = 'comment-content';
+        const formattedContent = escapeHtml(comment.内容)
+            .replace(/@([^\s@]+)/g, '<span class="mention">@$1</span>');
+        commentContent.innerHTML = formattedContent;
+        commentBody.appendChild(commentContent);
+
+        if (comment.attachments && comment.attachments.length > 0) {
+            const attachmentsContainer = document.createElement('div');
+            attachmentsContainer.className = 'comment-attachments';
+            comment.attachments.forEach((att: CommentAttachment) => {
+                const isImage = att.mimeType.startsWith('image/');
+                const attEl = document.createElement('a');
+                attEl.href = att.url;
+                attEl.target = '_blank';
+                attEl.rel = 'noopener noreferrer';
+                attEl.className = `attachment-item ${isImage ? 'image-attachment' : ''}`;
+                attEl.title = escapeHtml(att.name);
+                attEl.innerHTML = `
+                    ${isImage ? `<img src="${att.url}" alt="Attachment thumbnail">` : `<svg class="file-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`}
+                    <span>${escapeHtml(att.name)}</span>
+                `;
+                attachmentsContainer.appendChild(attEl);
+            });
+            commentBody.appendChild(attachmentsContainer);
+        }
+    };
+
+    renderBodyContent();
+
+    if (isOwner && isEditable) {
+        const actions = document.createElement('div');
+        actions.className = 'comment-actions';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'icon-btn edit-comment-btn';
+        editBtn.title = '编辑';
+        editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>`;
+        actions.appendChild(editBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'icon-btn delete-comment-btn';
+        deleteBtn.title = '删除';
+        deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+        actions.appendChild(deleteBtn);
+
+        deleteBtn.onclick = () => app.handleDeleteComment(indices, comment.id);
+
+        editBtn.onclick = () => {
+            commentBody.classList.add('hidden');
+            actions.classList.add('hidden');
+            
+            const editForm = document.createElement('form');
+            editForm.className = 'comment-edit-form';
+            const textarea = document.createElement('textarea');
+            textarea.value = comment.内容;
+            
+            const editActions = document.createElement('div');
+            editActions.className = 'comment-edit-actions';
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'secondary-btn';
+            cancelBtn.textContent = '取消';
+            
+            const saveBtn = document.createElement('button');
+            saveBtn.type = 'submit';
+            saveBtn.className = 'primary-btn';
+            saveBtn.textContent = '保存';
+            
+            editActions.append(cancelBtn, saveBtn);
+            editForm.append(textarea, editActions);
+            commentItem.appendChild(editForm);
+            textarea.focus();
+
+            cancelBtn.onclick = () => {
+                editForm.remove();
+                commentBody.classList.remove('hidden');
+                actions.classList.remove('hidden');
+            };
+
+            editForm.onsubmit = (e) => {
+                e.preventDefault();
+                const newContent = textarea.value.trim();
+                if (newContent) {
+                    app.handleEditComment(indices, comment.id, newContent);
+                }
+                // The re-render from setState will handle removing the form
+            };
+        };
+
+        commentHeader.appendChild(actions);
+    }
+    
+    commentItem.append(commentHeader, commentBody);
+    return commentItem;
+}
+
+function createNewCommentForm(app: ITimelineApp, task: 任务, indices: Indices, isEditable: boolean): HTMLFormElement {
+    const newCommentForm = document.createElement('form');
+    newCommentForm.className = 'new-comment-form';
+    newCommentForm.innerHTML = renderUI.renderUserAvatar(app, app.state.currentUser!.id);
+
+    const inputWrapper = document.createElement('div');
+    inputWrapper.className = 'comment-input-wrapper';
+    
+    const attachmentsPreview = document.createElement('div');
+    attachmentsPreview.className = 'comment-attachments-preview';
+
+    const renderPreviews = () => {
+        attachmentsPreview.innerHTML = '';
+        const files = app.commentAttachments.get(task.id) || [];
+        if (files.length > 0) {
+            files.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'attachment-preview-item';
+                item.innerHTML = `<span>${escapeHtml(file.name)}</span><button type="button" class="remove-preview-btn">&times;</button>`;
+                item.querySelector('.remove-preview-btn')!.addEventListener('click', () => {
+                    files.splice(index, 1);
+                    app.commentAttachments.set(task.id, files);
+                    renderPreviews();
+                });
+                attachmentsPreview.appendChild(item);
+            });
+        }
+    };
+
+    const textarea = document.createElement('textarea');
+    textarea.placeholder = '添加评论... (@提及成员)';
+    textarea.rows = 1;
+    textarea.addEventListener('input', function() { this.style.height = 'auto'; this.style.height = this.scrollHeight + 'px'; });
+
+    const formActions = document.createElement('div');
+    formActions.className = 'comment-form-actions';
+    const attachBtn = document.createElement('button');
+    attachBtn.type = 'button';
+    attachBtn.className = 'icon-btn';
+    attachBtn.title = 'Attach file';
+    attachBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>`;
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.multiple = true;
+    fileInput.className = 'hidden';
+    attachBtn.onclick = () => fileInput.click();
+    fileInput.onchange = () => {
+        if (fileInput.files) {
+            const currentFiles = app.commentAttachments.get(task.id) || [];
+            app.commentAttachments.set(task.id, [...currentFiles, ...Array.from(fileInput.files)]);
+            renderPreviews();
+        }
+        fileInput.value = ''; // Reset for next selection
+    };
+
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.className = 'primary-btn';
+    submitBtn.textContent = '发布';
+    
+    formActions.append(attachBtn, fileInput, submitBtn);
+    inputWrapper.append(attachmentsPreview, textarea, formActions);
+    newCommentForm.appendChild(inputWrapper);
+
+    if (!isEditable) {
+        textarea.disabled = true;
+        submitBtn.disabled = true;
+        attachBtn.disabled = true;
+    }
+
+    newCommentForm.onsubmit = (e) => {
+        e.preventDefault();
+        const content = textarea.value;
+        const attachments = app.commentAttachments.get(task.id) || [];
+        if (content.trim() || attachments.length > 0) {
+            app.handleAddComment(indices, content);
+            textarea.value = '';
+            textarea.style.height = 'auto';
+            // The re-render will clear the previews.
+        }
+    };
+
+    return newCommentForm;
 }
 
 function renderGanttChart(app: ITimelineApp): void {
