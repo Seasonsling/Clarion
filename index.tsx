@@ -360,6 +360,7 @@ export class TimelineApp implements ITimelineApp {
                 result.task.状态 = '进行中';
             }
             await this.saveCurrentProject(this.state.timeline);
+            this.render();
         }
     }
 
@@ -370,6 +371,7 @@ export class TimelineApp implements ITimelineApp {
             const currentTask = result.parent[result.taskIndex];
             result.parent[result.taskIndex] = { ...currentTask, ...updatedTask };
             await this.saveCurrentProject(this.state.timeline);
+            this.render();
         }
     }
 
@@ -393,6 +395,7 @@ export class TimelineApp implements ITimelineApp {
              taskListOwner.任务.push(newTask);
         }
         await this.saveCurrentProject(this.state.timeline);
+        this.render();
     }
 
     public async handleDeleteTask(indices: Indices): Promise<void> {
@@ -402,6 +405,7 @@ export class TimelineApp implements ITimelineApp {
         if(result && this.state.timeline) {
             result.parent.splice(result.taskIndex, 1);
             await this.saveCurrentProject(this.state.timeline);
+            this.render();
         }
     }
     
@@ -445,6 +449,7 @@ export class TimelineApp implements ITimelineApp {
             task.讨论.push(newComment);
             this.commentAttachments.delete(task.id); // Clear pending files for this task
             await this.saveCurrentProject(this.state.timeline);
+            this.render();
         }
     }
     
@@ -457,6 +462,7 @@ export class TimelineApp implements ITimelineApp {
             if (commentIndex > -1) {
                 result.task.讨论.splice(commentIndex, 1);
                 await this.saveCurrentProject(this.state.timeline);
+                this.render();
             }
         }
     }
@@ -469,6 +475,7 @@ export class TimelineApp implements ITimelineApp {
             if (comment && comment.内容 !== newContent) {
                 comment.内容 = newContent;
                 await this.saveCurrentProject(this.state.timeline);
+                this.render();
             } else {
                 this.render(); // Re-render to hide edit form if content is unchanged
             }
@@ -498,6 +505,7 @@ export class TimelineApp implements ITimelineApp {
         const insertIndex = position === 'before' ? dropIndex : dropIndex + 1;
         dropParent.splice(insertIndex, 0, movedTask);
         await this.saveCurrentProject(this.state.timeline);
+        this.render();
     }
 
     public async saveCurrentProject(updatedTimeline: 时间轴数据) {
@@ -508,13 +516,22 @@ export class TimelineApp implements ITimelineApp {
         } else {
              newHistory.push(updatedTimeline);
         }
-        this.setState({ timeline: { ...updatedTimeline }, projectsHistory: newHistory, saveStatus: 'saving' });
+        
+        this.setState({ 
+            timeline: { ...updatedTimeline }, 
+            projectsHistory: newHistory, 
+            saveStatus: 'saving' 
+        }, false);
+        renderUI.renderSaveStatusIndicator(this);
+        
         try {
             await api.updateProject(updatedTimeline, this.state.currentUser!.token);
-            this.setState({ saveStatus: 'saved' });
+            this.setState({ saveStatus: 'saved' }, false);
+            renderUI.renderSaveStatusIndicator(this);
         } catch (error) {
             console.error("Failed to save project:", error);
-            this.setState({ saveStatus: 'error' });
+            this.setState({ saveStatus: 'error' }, false);
+            renderUI.renderSaveStatusIndicator(this);
             alert("项目保存失败，您的更改可能不会被保留。请检查您的网络连接并重试。");
         }
     }
@@ -558,6 +575,7 @@ export class TimelineApp implements ITimelineApp {
             }
         }
         await this.saveCurrentProject(this.state.timeline);
+        this.render();
     }
   
     public showEditModal(indices: Indices, task: 任务): void {
@@ -768,6 +786,7 @@ export class TimelineApp implements ITimelineApp {
         this.clearUndoState();
         await this.saveCurrentProject(timelineToSave);
         this.setState({ pendingTimeline: null });
+        this.render();
     }
 
     public handleRejectAiChanges(): void {
