@@ -37,8 +37,6 @@ export class TimelineApp implements ITimelineApp {
       assignee: [],
     },
     sortBy: 'default',
-    ganttGranularity: 'days',
-    ganttZoomLevel: 40,
     mindMapState: {
         collapsedNodes: new Set<string>(),
     },
@@ -920,6 +918,8 @@ export class TimelineApp implements ITimelineApp {
             setTimeout(() => this.timelineSection.classList.add('visible'), 10);
             const userRole = this.getUserRole();
             const readOnly = userRole === 'Viewer' || !!this.state.pendingTimeline;
+            const isOwner = timelineData.ownerId === this.state.currentUser!.id;
+            
             this.projectNameEl.innerHTML = '';
             this.projectNameEl.appendChild(renderUI.createEditableElement(this, 'h2', timelineData.项目名称, {}, '项目名称'));
             if (readOnly) {
@@ -930,7 +930,10 @@ export class TimelineApp implements ITimelineApp {
             }
             
             this.shareBtn.style.display = userRole === 'Viewer' ? 'none' : 'inline-flex';
+            (this.optimizeBtnToggle.parentElement as HTMLElement).style.display = isOwner ? 'inline-block' : 'none';
+            this.chatToggleBtn.style.display = isOwner ? 'inline-flex' : 'none';
             this.optimizeBtnToggle.disabled = readOnly;
+
             this.aiChangesConfirmBar.classList.toggle('hidden', !this.state.pendingTimeline);
             renderUI.renderViewSwitcher(this);
             renderUI.renderViewSpecificControls(this);

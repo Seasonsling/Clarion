@@ -480,7 +480,16 @@ export async function handleGenerateReportClick(this: ITimelineApp, period: 'wee
         const periodText = period === 'weekly' ? '过去7天' : '过去30天';
         const nextPeriodText = period === 'weekly' ? '未来7天' : '未来30天';
         
+        const isOwner = this.state.timeline?.ownerId === this.state.currentUser?.id;
+        const currentUser = this.state.currentUser;
+
+        let userContextPrompt = '';
+        if (!isOwner && currentUser) {
+            userContextPrompt = `\n**CRITICAL INSTRUCTION**: This report is being generated for a specific team member: ${currentUser.profile.displayName} (ID: ${currentUser.id}). The entire report (progress, accomplishments, risks, and next steps) MUST focus exclusively on tasks where this user is listed as a responsible person ('负责人Ids'). Do not include information about tasks assigned to other people.\n`;
+        }
+        
         const prompt = `As a professional project manager AI, analyze the following project plan JSON. Based on the data, generate a concise and structured project status report in Chinese. The report is a **${reportTitle}** reflecting activities in the **${periodText}**. The current date is ${currentDate}.
+${userContextPrompt}
 The report must follow this structure, including the markdown-style headers:
 ### 1. 本期总体进度 (Overall Progress This Period)
 Briefly summarize the project's health. Focus on progress made in the **${periodText}**. Mention key milestones achieved or shifts in timeline.
@@ -522,9 +531,17 @@ export async function handleGeneratePlanClick(this: ITimelineApp): Promise<void>
         const membersMap = new Map(this.state.allUsers.map(u => [u.id, u.profile.displayName]));
         const membersList = this.state.timeline?.members.map(m => `- ${membersMap.get(m.userId) || '未知成员'} (ID: ${m.userId})`).join('\n') || '无';
 
+        const isOwner = this.state.timeline?.ownerId === this.state.currentUser?.id;
+        const currentUser = this.state.currentUser;
+
+        let userContextPrompt = '';
+        if (!isOwner && currentUser) {
+            userContextPrompt = `\n**CRITICAL INSTRUCTION**: This weekly plan is being generated for a specific team member: ${currentUser.profile.displayName} (ID: ${currentUser.id}). The entire plan MUST be generated from their perspective and ONLY include tasks where they are listed as a responsible person ('负责人Ids'). All groupings and objectives should be tailored to this individual's work for the upcoming week.\n`;
+        }
+
         const prompt = `
 作为一名专家级的项目管理AI，你的任务是根据给定的项目JSON数据，为接下来的一周（从 ${today.toLocaleDateString('zh-CN')} 到 ${nextWeek.toLocaleDateString('zh-CN')}）生成一份清晰、可执行的中文周度计划。
-
+${userContextPrompt}
 **核心指令:**
 1.  **聚焦未来**: 只分析状态为“待办”或“进行中”，且“开始时间”或“截止日期”在未来10天内的任务。忽略已完成或远期的任务。
 2.  **按负责人分组**: 计划必须以负责人/团队为主要分组。将涉及相同成员的任务聚合在一起。

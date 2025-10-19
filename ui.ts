@@ -1,6 +1,6 @@
 import { getInitials, stringToColor } from './utils.js';
 // FIX: Import ViewType and GanttGranularity to correctly type UI control data.
-import type { ITimelineApp, Indices, 任务, TopLevelIndices, ProjectMemberRole, User, ViewType, GanttGranularity, ChatModel } from './types.js';
+import type { ITimelineApp, Indices, 任务, TopLevelIndices, ProjectMemberRole, User, ViewType, ChatModel } from './types.js';
 
 function renderAuth(app: ITimelineApp): void {
     app.authSection.classList.remove('hidden');
@@ -310,8 +310,8 @@ function renderChatAttachmentPreview(app: ITimelineApp): void {
 function renderViewSwitcher(app: ITimelineApp): void {
     // FIX: Explicitly type the views array to ensure view.id has the correct 'ViewType'.
     const views: { id: ViewType, name: string }[] = [
-      { id: 'vertical', name: '纵览' }, { id: 'gantt', name: '甘特图' }, { id: 'kanban', name: '看板' },
-      { id: 'calendar', name: '行事历' }, { id: 'workload', name: '工作负载' }, { id: 'dependencies', name: '依赖图' },
+      { id: 'vertical', name: '纵览' }, { id: 'kanban', name: '看板' },
+      { id: 'calendar', name: '行事历' }, { id: 'dependencies', name: '依赖图' },
       { id: 'mindmap', name: '思维导图' },
     ];
     app.viewSwitcherEl.innerHTML = '';
@@ -327,20 +327,7 @@ function renderViewSwitcher(app: ITimelineApp): void {
 function renderViewSpecificControls(app: ITimelineApp): void {
     if (!app.viewSpecificControlsEl) return;
     app.viewSpecificControlsEl.innerHTML = '';
-    if (app.state.currentView === 'gantt') {
-        app.viewSpecificControlsEl.classList.add('gantt-view-controls');
-        // FIX: Explicitly type the granularities array to ensure gran.id has the correct 'GanttGranularity' type.
-        const granularities: { id: GanttGranularity, name: string }[] = [{ id: 'days', name: '日' }, { id: 'weeks', name: '周' }, { id: 'months', name: '月' }];
-        granularities.forEach(gran => {
-            const btn = document.createElement('button');
-            btn.textContent = gran.name;
-            btn.className = app.state.ganttGranularity === gran.id ? 'active' : '';
-            btn.onclick = () => app.setState({ ganttGranularity: gran.id });
-            app.viewSpecificControlsEl!.appendChild(btn);
-        });
-    } else {
-        app.viewSpecificControlsEl.classList.remove('gantt-view-controls');
-    }
+    app.viewSpecificControlsEl.classList.remove('gantt-view-controls');
 }
 
 function createMultiSelectDropdown(app: ITimelineApp, id: 'status' | 'priority' | 'assignee', labelText: string, options: string[], selectedOptions: string[]): HTMLElement {

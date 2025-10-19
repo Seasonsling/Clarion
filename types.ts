@@ -81,9 +81,8 @@ export interface 时间轴数据 {
   members: ProjectMember[];
 }
 
-export type ViewType = 'vertical' | 'gantt' | 'kanban' | 'calendar' | 'workload' | 'dependencies' | 'mindmap';
+export type ViewType = 'vertical' | 'kanban' | 'calendar' | 'dependencies' | 'mindmap';
 export type ChatRole = 'user' | 'model';
-export type GanttGranularity = 'days' | 'weeks' | 'months';
 export type ChatModel = 'gemini-2.5-pro' | 'gemini-flash';
 
 export interface ChatMessage {
@@ -138,8 +137,6 @@ export interface AppState {
     assignee: string[];
   };
   sortBy: 'default' | 'deadline' | 'priority' | 'name';
-  ganttGranularity: GanttGranularity;
-  ganttZoomLevel: number;
   mindMapState: {
     collapsedNodes: Set<string>;
   };
