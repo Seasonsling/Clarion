@@ -296,18 +296,16 @@ function createDiscussionElement(app: ITimelineApp, task: 任务, indices: Indic
     discussionContainer.className = 'task-discussion';
 
     const toggleBtn = document.createElement('button');
-    toggleBtn.className = 'task-discussion-toggle';
+    toggleBtn.className = 'task-discussion-toggle active';
     toggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg> <span>${task.讨论?.length || 0} 条讨论</span>`;
 
     const discussionArea = document.createElement('div');
-    discussionArea.className = 'task-discussion-area hidden';
+    discussionArea.className = 'task-discussion-area';
     discussionArea.id = `discussion-area-${task.id}`;
 
+    renderDiscussionContent(app, discussionArea, task, indices, isEditable);
+
     toggleBtn.onclick = () => {
-        const wasHidden = discussionArea.classList.contains('hidden');
-        if (wasHidden) {
-            renderDiscussionContent(app, discussionArea, task, indices, isEditable);
-        }
         discussionArea.classList.toggle('hidden');
         toggleBtn.classList.toggle('active');
     };

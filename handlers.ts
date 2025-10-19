@@ -300,7 +300,8 @@ export async function handleSyncWeeklyProgress(this: ITimelineApp): Promise<void
         ---`;
 
         const responseSchema = (this as any).createTimelineSchema();
-        const modelName = this.state.chatModel === 'gemini-flash' ? 'gemini-flash-latest' : 'gemini-2.5-pro';
+        // Force the use of the more powerful model for this complex, critical task to improve reliability.
+        const modelName = 'gemini-2.5-pro';
 
         const response = await this.ai.models.generateContent({
             model: modelName,
@@ -321,7 +322,17 @@ export async function handleSyncWeeklyProgress(this: ITimelineApp): Promise<void
 
     } catch (error) {
         console.error("同步周进度时出错:", error);
-        alert("同步周进度失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
+        let errorMessage = "同步周进度失败，请稍后重试。";
+        if (error instanceof Error) {
+            if (error.message.includes('API key')) {
+                errorMessage = "同步失败：您的 API 密钥无效或已过期。请在用户设置中更新。";
+            } else if (error.message.includes('timed out') || error.message.includes('network')) {
+                errorMessage = "同步失败：网络连接超时。请检查您的网络并重试。";
+            } else if (error.message.includes('JSON')) {
+                 errorMessage = "同步失败：AI 返回了无效的数据格式。可能是任务过于复杂，请尝试分步处理。";
+            }
+        }
+        alert(errorMessage);
     } finally {
         this.setState({ isLoading: false });
     }
