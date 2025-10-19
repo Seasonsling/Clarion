@@ -902,7 +902,7 @@ textarea#quick-add-input:focus {
 .phase-content {
     overflow: hidden;
     transition: max-height 0.4s ease-in-out, opacity 0.4s ease-in-out;
-    max-height: 4000px; /* Large value to allow content to expand */
+    max-height: 40000px; /* Large value to allow content to expand */
     opacity: 1;
 }
 .phase-content.collapsed {
