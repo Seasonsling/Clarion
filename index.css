@@ -1625,7 +1625,8 @@ input.inline-edit:focus {
 }
 .modal-form input,
 .modal-form textarea,
-.modal-form select {
+.modal-form select,
+.modal-textarea {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid var(--border-color);
@@ -1636,12 +1637,14 @@ input.inline-edit:focus {
 }
 .modal-form input:focus,
 .modal-form textarea:focus,
-.modal-form select:focus {
+.modal-form select:focus,
+.modal-textarea:focus {
   outline: none;
   border-color: var(--accent-color-light);
   box-shadow: 0 0 0 3px rgba(249, 168, 37, 0.3);
 }
-.modal-form textarea {
+.modal-form textarea,
+.modal-textarea {
   resize: vertical;
   min-height: 80px;
 }
@@ -1672,7 +1675,7 @@ input.inline-edit:focus {
     overflow-y: auto;
     flex-grow: 1;
 }
-.members-list {
+.members-list, .members-checklist {
     list-style: none;
     max-height: 250px;
     overflow-y: auto;
@@ -1680,6 +1683,15 @@ input.inline-edit:focus {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+}
+.members-checklist {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 0.5rem;
+    max-height: 300px;
+}
+.members-checklist .multi-select-option {
+    padding: 0.75rem;
 }
 .member-item {
     display: flex;

@@ -348,6 +348,7 @@ export async function handleSyncWeeklyProgress(this: ITimelineApp): Promise<void
     } catch (error) {
         console.error("同步周进度时出错:", error);
         alert(getApiErrorMessage(error, "同步周进度"));
+        throw error; // Re-throw to be caught by the caller if needed
     } finally {
         this.setState({ isLoading: false });
     }
@@ -400,6 +401,7 @@ export function handleImport(this: ITimelineApp, event: Event): void {
             this.setState({ isLoading: false });
         }
     };
+    // FIX: Corrected typo from readText to readAsText.
     reader.readAsText(file);
     (event.target as HTMLInputElement).value = ''; 
 }
@@ -503,29 +505,32 @@ export async function handleGenerateReportClick(this: ITimelineApp, period: 'wee
 
         let userContextPrompt = '';
         if (!isOwner && currentUser) {
-            userContextPrompt = `\n**CRITICAL INSTRUCTION**: This report is being generated for a specific team member: ${currentUser.profile.displayName} (ID: ${currentUser.id}). The entire report (progress, accomplishments, risks, and next steps) MUST focus exclusively on tasks where this user is listed as a responsible person ('负责人Ids'). Do not include information about tasks assigned to other people.\n`;
+            userContextPrompt = `\n**CRITICAL**: This report is for a specific team member: ${currentUser.profile.displayName} (ID: ${currentUser.id}). The entire report (progress, accomplishments, risks, next steps) MUST focus exclusively on tasks assigned to this user.\n`;
         }
         
-        const prompt = `As a professional project manager AI, analyze the following project plan JSON. Based on the data, generate a concise and structured project status report in Chinese. The report is a **${reportTitle}** reflecting activities in the **${periodText}**. The current date is ${currentDate}.
+        const prompt = `As a professional project manager AI, analyze the following project plan JSON to generate a concise, structured Chinese project status report for the **${periodText}**. The current date is ${currentDate}.
 
-**Project Members List (for reference):**
-Here is a list of project members. When you mention a person or responsible party in the report, you **MUST** use their display name (e.g., "张三"), not their ID (e.g., "123").
+**CRITICAL INSTRUCTION ON PERSONNEL IDENTIFICATION:**
+You are provided with a list of project members mapping their user ID to their display name. This is the ground truth. In your entire generated report, whenever you refer to a person (e.g., a task assignee), you **MUST** use their display name from this list. It is strictly forbidden to output a raw user ID (e.g., "3", "user-123"). For example, if a task has \`"负责人Ids": ["3"]\` and the list shows ID "3" is "张三", you must write "负责人: 张三".
+
+**Project Members List (ID to Name mapping):**
 ${membersList}
 ${userContextPrompt}
 The report must follow this structure, including the markdown-style headers:
 ### 1. 本期总体进度 (Overall Progress This Period)
-Briefly summarize the project's health. Focus on progress made in the **${periodText}**. Mention key milestones achieved or shifts in timeline.
+Summarize the project's health and progress in the **${periodText}**.
 ### 2. 本期关键成果 (Key Accomplishments This Period)
-List important tasks that were marked as '已完成' during the **${periodText}**.
+List important tasks marked '已完成' during the **${periodText}**.
 ### 3. 延期、阻碍与风险 (Delays, Obstacles & Risks)
-Identify any tasks that are past their '截止日期' but not yet '已完成'. Based on task descriptions, comments, and statuses, infer and briefly state the potential **reasons for the delay**. Highlight any **obstacles** encountered during this period and potential upcoming **risks** that might impede future progress.
+Identify tasks past their '截止日期' but not '已完成'. Infer reasons for delay. Highlight obstacles and risks.
 ### 4. 下期工作计划 (Next Period's Plan)
-List the key tasks that are scheduled to start or are due within the **${nextPeriodText}**.
-Here is the project data:
+List key tasks scheduled or due within the **${nextPeriodText}**.
+
+Project data:
 ---
 ${JSON.stringify(this.state.timeline, null, 2)}
 ---
-Provide the report in a clean, readable format suitable for copying into an email or document. Use markdown for headers.`;
+Provide the report in clean, readable markdown format.`;
 
         const modelName = this.state.chatModel === 'gemini-flash' ? 'gemini-flash-latest' : 'gemini-2.5-pro';
         const response = await this.ai.models.generateContent({
@@ -540,65 +545,67 @@ Provide the report in a clean, readable format suitable for copying into an emai
     }
 }
 
-export async function handleGeneratePlanClick(this: ITimelineApp): Promise<void> {
+export function handleGeneratePlanClick(this: ITimelineApp): void {
     if (!this.state.apiKey) {
         renderUI.showApiKeyModal(this, true);
         alert("请先提供您的 API 密钥。");
         return;
     }
+    renderUI.showWeeklyPlanAssistantModal(this);
+}
+
+export async function executeGeneratePlan(this: ITimelineApp, newTasksText: string, selectedMemberIds: string[]): Promise<void> {
     const title = '周度计划';
     this.setState({ isLoading: true, loadingText: "正在为您规划下周的作战部署..." });
     try {
         const today = new Date();
         const nextWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-        const membersMap = new Map(this.state.allUsers.map(u => [u.id, u.profile.displayName]));
-        const membersList = this.state.timeline?.members.map(m => `- ${membersMap.get(m.userId) || '未知成员'} (ID: ${m.userId})`).join('\n') || '无';
+        const allUsersMap = new Map(this.state.allUsers.map(u => [u.id, u.profile.displayName]));
+        const selectedMembersInfo = selectedMemberIds.map(id => `- ${allUsersMap.get(id) || `ID: ${id}`}`).join('\n');
+        const allMembersListForPrompt = this.state.timeline?.members.map(m => `- ${allUsersMap.get(m.userId) || '未知成员'} (ID: ${m.userId})`).join('\n') || '无';
 
-        const isOwner = this.state.timeline?.ownerId === this.state.currentUser?.id;
-        const currentUser = this.state.currentUser;
-
-        let userContextPrompt = '';
-        if (!isOwner && currentUser) {
-            userContextPrompt = `\n**CRITICAL INSTRUCTION**: This weekly plan is being generated for a specific team member: ${currentUser.profile.displayName} (ID: ${currentUser.id}). The entire plan MUST be generated from their perspective and ONLY include tasks where they are listed as a responsible person ('负责人Ids'). All groupings and objectives should be tailored to this individual's work for the upcoming week.\n`;
-        }
+        const newTasksPromptSection = newTasksText
+            ? `**重要新增指令:**
+用户为本周提供了以下新的任务和目标。你必须将这些信息智能地整合到生成的计划中，创建新任务条目并分配给合适的负责人。
+---
+${newTasksText}
+---`
+            : '';
 
         const prompt = `
 作为一名专家级的项目管理AI，你的任务是根据给定的项目JSON数据，为接下来的一周（从 ${today.toLocaleDateString('zh-CN')} 到 ${nextWeek.toLocaleDateString('zh-CN')}）生成一份清晰、可执行的中文周度计划。
-${userContextPrompt}
-**核心指令:**
-1.  **聚焦未来**: 只分析状态为“待办”或“进行中”，且“开始时间”或“截止日期”在未来10天内的任务。忽略已完成或远期的任务。
-2.  **按负责人分组**: 计划必须以负责人/团队为主要分组。**你必须使用成员的显示名称（例如“邱一波”），绝对不能使用他们的 ID。** 将涉及相同成员的任务聚合在一起。
-3.  **提炼核心目标**: 为每个负责人/团队提炼出 1-3 个本周的核心工作目标（例如：“1. 国赛PPT最终冲刺”）。这些目标应基于他们本周最重要或最高优先级的任务。
-4.  **明确具体任务**: 在每个核心目标下，列出具体的子任务（例如：“○ 任务1.1”）。这些子任务应直接对应JSON中的任务名称。
-5.  **丰富任务细节**: 在每个具体任务下，用项目符号 '■' 补充关键信息，包括：
-    *   **负责人说明**: 简要说明负责人的具体工作内容，可以结合任务的“详情”和“备注”。
-    *   **产出**: 明确指出该任务完成后应交付的成果（例如：“■ 产出: 一份高质量的、已提交的国赛PPT终稿。”）。你需要根据任务名称和详情智能推断产出物。
-6.  **强调优先级和截止日期**: 对于“高”优先级的任务，标记为“(T0级任务)”。并在任务描述中明确指出截止日期（例如，“(10月15日前必须完成)”）。
-7.  **严格遵循格式**: 输出的格式必须严格模仿下面的示例，使用字母、数字、圆点和方点来组织层级。
 
-**可分配的项目成员:**
-${membersList}
+**CRITICAL INSTRUCTION ON PERSONNEL IDENTIFICATION:**
+You are provided with a list of project members mapping their user ID to their display name. This is your ground truth. In your entire generated plan, whenever you refer to a person, you **MUST** use their display name. It is strictly forbidden to output a raw user ID. For example, if a task has \`"负责人Ids": ["3"]\` and the list shows ID "3" is "张三", you must write "负责人: 张三".
+
+**核心指令:**
+1.  **严格筛选负责人**: 这是最重要的指令。生成的计划 **必须只包含** 为以下选定成员分配的任务。计划的主要分组也必须围绕这些成员。
+    **选定成员列表:**
+    ${selectedMembersInfo}
+2.  **处理新增任务**: ${newTasksPromptSection || '（本周无新增任务指令）'}
+3.  **聚焦未来**: 只分析状态为“待办”或“进行中”，且“开始时间”或“截止日期”在未来10天内的任务。
+4.  **使用显示名称**: 再次强调，**绝对不能使用用户 ID**，必须使用显示名称。参考列表如下：
+    **项目所有成员参考 (ID to Name mapping):**
+    ${allMembersListForPrompt}
+5.  **提炼核心目标和具体任务**: 为每个负责人/团队提炼核心目标，并在其下罗列具体任务。
+6.  **丰富任务细节**: 在每个具体任务下，用 '■' 补充说明和预期产出。
+7.  **强调优先级和截止日期**: 对高优任务标记“(T0级任务)”并注明截止日期。
+8.  **严格遵循格式**: 严格模仿示例格式。
 
 **当前项目数据:**
 ---
 ${JSON.stringify(this.state.timeline, null, 2)}
 ---
-
 **【输出格式示例】**
 ---
 ${new Date().getFullYear()}-${today.getMonth() + 1}-${today.getDate()} ~ ${nextWeek.getFullYear()}.${nextWeek.getMonth() + 1}.${nextWeek.getDate()}
-A. 邱一波 & 孟源馨 & 实习同学 (国赛冲刺与设计团队)
+A. 邱一波 & 孟源馨 (国赛冲刺与设计团队)
 1. 国赛PPT最终冲刺 (T0级任务，10月15日前必须完成)
-    ○ 任务1.1 （一波）: 全力完成国赛PPT的最终精细打磨。
-        ■ 一波： 继续对照指南以及德适的PPT完成国赛PPT的修改和打磨，后续如果能复用到公司宣传PPT的话最好
-    ○ 任务1.3 (10月15日前): 完成国赛PPT的最终提交。
+    ○ 任务1.1 (一波): 全力完成国赛PPT的最终精细打磨。
         ■ 产出: 一份高质量的、已提交的国赛PPT终稿。
-2. 产品形象提升 (T0级任务，源馨主导，实习生协助)
-    ○ 任务2.1: 制作新版宣传图和演示视频。
-        ■ 与技术团队（之润、佳辉）沟通，获取最新的、高质量的软件运行截图和视频素材。
-B. 张之润 (核心技术攻坚 & 硬件负责人)
-1. 采集卡问题进一步研究：结合黄总发的材料，给出延迟优化的进一步建议
-    ○ 任务2.1: 作为技术负责人，和源馨一起，对接设计公司。
+B. 张之润 (核心技术攻坚)
+1. 采集卡问题进一步研究
+    ○ 任务2.1: 对接设计公司。
         ■ 产出: 外部依赖事项的进展更新。
 ---
 请立即开始生成周度计划。`;
@@ -611,7 +618,6 @@ B. 张之润 (核心技术攻坚 & 硬件负责人)
         renderUI.showReportModal(this, false, response.text, title);
     } catch (error) {
         console.error("生成周计划时出错:", error);
-        const title = '周度计划';
         renderUI.showReportModal(this, false, getApiErrorMessage(error, "周计划生成"), title);
     } finally {
         this.setState({ isLoading: false });

@@ -1,6 +1,7 @@
 import { getInitials, stringToColor } from './utils.js';
 // FIX: Import ViewType and GanttGranularity to correctly type UI control data.
 import type { ITimelineApp, Indices, 任务, TopLevelIndices, ProjectMemberRole, User, ViewType, ChatModel } from './types.js';
+import * as handlers from './handlers.js';
 
 function renderAuth(app: ITimelineApp): void {
     app.authSection.classList.remove('hidden');
@@ -599,6 +600,153 @@ function showReportModal(app: ITimelineApp, isLoading: boolean, reportText: stri
     setTimeout(() => modalOverlay.classList.add('visible'), 10);
 }
 
+function showWeeklyPlanAssistantModal(app: ITimelineApp): void {
+  document.getElementById('weekly-plan-modal-overlay')?.remove();
+  const modalOverlay = document.createElement('div');
+  modalOverlay.id = 'weekly-plan-modal-overlay';
+  modalOverlay.className = 'modal-overlay';
+
+  const modalContent = document.createElement('div');
+  modalContent.className = 'modal-content';
+  modalContent.innerHTML = `
+    <div class="modal-header">
+      <h2 id="weekly-plan-modal-title">周度计划助手</h2>
+      <button class="modal-close-btn">&times;</button>
+    </div>
+    <div id="weekly-plan-modal-body" class="modal-body" style="min-height: 200px;"></div>
+    <div id="weekly-plan-modal-footer" class="modal-footer"></div>
+  `;
+  modalOverlay.appendChild(modalContent);
+  document.body.appendChild(modalOverlay);
+
+  const titleEl = modalContent.querySelector('#weekly-plan-modal-title') as HTMLElement;
+  const bodyEl = modalContent.querySelector('#weekly-plan-modal-body') as HTMLElement;
+  const footerEl = modalContent.querySelector('#weekly-plan-modal-footer') as HTMLElement;
+
+  let newTasksText = '';
+
+  const close = () => modalOverlay.remove();
+  modalContent.querySelector('.modal-close-btn')!.addEventListener('click', close);
+  modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) close(); });
+
+  const renderStep3 = () => {
+      titleEl.textContent = '第 3/3 步: 选择计划成员';
+      const members = app.state.timeline?.members || [];
+      const users = app.state.allUsers;
+      const memberOptions = members.map(member => {
+         const user = users.find(u => u.id === member.userId);
+         return user ? `
+           <label class="multi-select-option">
+             <input type="checkbox" name="plan-member" value="${user.id}" checked>
+             ${renderUserAvatar(app, user.id)}
+             <span>${user.profile.displayName}</span>
+           </label>
+         ` : '';
+      }).join('');
+
+      bodyEl.innerHTML = `
+         <p>请选择需要包含在周计划中的成员。计划将围绕选定成员的任务来生成。</p>
+         <div class="members-checklist">
+             <label class="multi-select-option">
+                 <input type="checkbox" id="plan-select-all" checked>
+                 <strong>全选 / 全不选</strong>
+             </label>
+             <hr style="margin: 0.5rem 0;">
+             ${memberOptions}
+         </div>
+      `;
+      footerEl.innerHTML = `
+         <button type="button" class="secondary-btn" id="plan-step3-back">返回</button>
+         <button type="button" class="primary-btn" id="plan-step3-generate">生成计划</button>
+      `;
+
+      const generateBtn = footerEl.querySelector('#plan-step3-generate')!;
+      const backBtn = footerEl.querySelector('#plan-step3-back')!;
+      const selectAllCheckbox = bodyEl.querySelector('#plan-select-all') as HTMLInputElement;
+      const memberCheckboxes = bodyEl.querySelectorAll<HTMLInputElement>('input[name="plan-member"]');
+      
+      const syncSelectAll = () => {
+         const allChecked = Array.from(memberCheckboxes).every(cb => cb.checked);
+         selectAllCheckbox.checked = allChecked;
+      };
+
+      selectAllCheckbox.addEventListener('change', () => {
+         memberCheckboxes.forEach(cb => cb.checked = selectAllCheckbox.checked);
+      });
+
+      memberCheckboxes.forEach(cb => cb.addEventListener('change', syncSelectAll));
+
+      generateBtn.addEventListener('click', () => {
+         const selectedIds = Array.from(memberCheckboxes)
+                                 .filter(cb => cb.checked)
+                                 .map(cb => cb.value);
+        if (selectedIds.length === 0) {
+            alert("请至少选择一位成员。");
+            return;
+        }
+        close();
+        handlers.executeGeneratePlan.call(app, newTasksText, selectedIds);
+      });
+      backBtn.addEventListener('click', renderStep2);
+  };
+
+  const renderStep2 = () => {
+    titleEl.textContent = '第 2/3 步: 新增任务需求';
+    bodyEl.innerHTML = `
+      <p>请输入本周需要额外处理的新任务、目标或工作重点。AI 会将它们智能地融入计划中。如果无新增内容，请留空。</p>
+      <div class="form-group full-width" style="margin: 0;">
+        <label for="new-tasks-input" style="margin-bottom: 0.5rem;">新增任务描述</label>
+        <textarea id="new-tasks-input" class="modal-textarea" rows="6" placeholder="例如：紧急修复线上bug；筹备下个月的团队建设活动..."></textarea>
+      </div>
+    `;
+    footerEl.innerHTML = `
+      <button type="button" class="secondary-btn" id="plan-step2-back">返回</button>
+      <button type="button" class="primary-btn" id="plan-step2-next">下一步</button>
+    `;
+    
+    const nextBtn = footerEl.querySelector('#plan-step2-next')!;
+    const backBtn = footerEl.querySelector('#plan-step2-back')!;
+    const textarea = bodyEl.querySelector('#new-tasks-input') as HTMLTextAreaElement;
+    textarea.value = newTasksText;
+
+    nextBtn.addEventListener('click', () => {
+        newTasksText = textarea.value.trim();
+        renderStep3();
+    });
+    backBtn.addEventListener('click', renderStep1);
+  };
+
+  const renderStep1 = () => {
+    titleEl.textContent = '第 1/3 步: 同步项目进度';
+    bodyEl.innerHTML = `
+      <p>在制定新计划前，建议先让 AI 自动同步上周的项目进度。</p>
+      <p>AI 会读取所有任务下的评论，智能识别进度汇报，并将其更新到任务的状态和详情中。</p>
+    `;
+    footerEl.innerHTML = `
+      <button type="button" class="secondary-btn" id="plan-step1-skip">跳过</button>
+      <button type="button" class="primary-btn" id="plan-step1-sync">同步并继续</button>
+    `;
+
+    const skipBtn = footerEl.querySelector('#plan-step1-skip')!;
+    const syncBtn = footerEl.querySelector('#plan-step1-sync')!;
+
+    skipBtn.addEventListener('click', renderStep2);
+    syncBtn.addEventListener('click', async () => {
+        bodyEl.innerHTML = '<div class="spinner"></div><p style="margin-top: 1rem;">正在同步进度...</p>';
+        footerEl.innerHTML = '';
+        try {
+            await handlers.handleSyncWeeklyProgress.call(app);
+            renderStep2();
+        } catch (e) {
+            close();
+        }
+    });
+  };
+
+  renderStep1();
+  setTimeout(() => modalOverlay.classList.add('visible'), 10);
+}
+
 
 export const renderUI = {
     renderAuth,
@@ -616,4 +764,5 @@ export const renderUI = {
     showEditModal,
     showMembersModal,
     showReportModal,
+    showWeeklyPlanAssistantModal,
 };
