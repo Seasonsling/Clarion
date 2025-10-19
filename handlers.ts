@@ -220,7 +220,7 @@ export async function handleRefineProject(this: ITimelineApp): Promise<void> {
 
         const responseSchema = (this as any).createTimelineSchema();
         const response = await this.ai.models.generateContent({
-            model: "gemini-2.5-pro", // Hardcoded as per request
+            model: "gemini-2.5-pro",
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: responseSchema },
         });
@@ -358,7 +358,7 @@ ${additionalInfo ? `此外，用户还提供了以下信息：${additionalInfo}`
 ${JSON.stringify(projectToUpdate)}
 ---`;
         const response = await this.ai.models.generateContent({
-            model: this.state.chatModel,
+            model: "gemini-2.5-pro",
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema },
         });
@@ -420,7 +420,7 @@ ${JSON.stringify(this.state.timeline, null, 2)}
 Provide the report in a clean, readable format suitable for copying into an email or document. Use markdown for headers.`;
 
         const response = await this.ai.models.generateContent({
-            model: this.state.chatModel,
+            model: "gemini-2.5-pro",
             contents: prompt,
         });
         renderUI.showReportModal(this, false, response.text);
@@ -465,11 +465,10 @@ export async function handleChatSubmit(this: ITimelineApp, e: Event): Promise<vo
         chatAttachment: null 
     });
     
-    const modelForThisTurn = (this.chatFormModelSelector.value as 'gemini-flash' | 'gemini-2.5-pro') || this.state.chatModel;
-    await submitChat.call(this, newUserMessage, newHistory, modelForThisTurn);
+    await submitChat.call(this, newUserMessage, newHistory);
 }
 
-export async function submitChat(this: ITimelineApp, userMessage: ChatMessage, currentChatHistory: ChatMessage[], model: string): Promise<void> {
+export async function submitChat(this: ITimelineApp, userMessage: ChatMessage, currentChatHistory: ChatMessage[]): Promise<void> {
     if (!this.state.apiKey) {
         renderUI.showApiKeyModal(this, true);
         alert("请先提供您的 API 密钥。");
@@ -483,7 +482,7 @@ export async function submitChat(this: ITimelineApp, userMessage: ChatMessage, c
         
         if (isQuestion && !attachment) { // Simple Q&A, no attachment
             const response = await this.ai.models.generateContent({
-                model: model,
+                model: "gemini-2.5-pro",
                 contents: `请根据您的知识和网络搜索结果，用中文回答以下问题。如果问题与提供的项目计划有关，请结合上下文回答。
 ---
 当前项目计划 (上下文参考):
@@ -543,7 +542,7 @@ ${JSON.stringify(this.state.timeline)}
             contents.push({ text: promptText });
 
             const response = await this.ai.models.generateContent({
-                model: model,
+                model: "gemini-2.5-pro",
                 contents: { parts: contents },
                 config: { responseMimeType: "application/json", responseSchema: responseSchema },
             });

@@ -334,72 +334,94 @@ function renderGanttChart(app: ITimelineApp): void {
             app.setState({ ganttZoomLevel: Math.max(10, Math.min(200, newZoom)) });
         }
     };
+
     const tasksWithDates = app.getProcessedTasks().filter(t => t.task.开始时间);
     if (tasksWithDates.length === 0) {
-        app.timelineContainer.innerHTML = `<p>沒有符合篩選條件的任務，或任務未設置開始時間。</p>`;
+        app.timelineContainer.innerHTML = `<p>没有符合筛选条件或带有开始日期的任务可供显示。</p>`;
         return;
     }
+
     const dates = tasksWithDates.flatMap(t => [parseDate(t.task.开始时间), parseDate(t.task.截止日期)]).filter((d): d is Date => d !== null);
     if (dates.length === 0) {
-        app.timelineContainer.innerHTML = `<p>沒有帶日期的任務可供顯示。</p>`;
+        app.timelineContainer.innerHTML = `<p>没有带日期的任务可供显示。</p>`;
         return;
     }
-    const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
-    const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
+
     const { ganttGranularity: granularity, ganttZoomLevel } = app.state;
-    let headerUnits: { label: string, span: number }[] = [], subHeaderUnits: { label: string, isWeekend?: boolean }[] = [], totalUnits = 0;
+    
+    // Determine the timeline boundaries
+    let minDate = new Date(Math.min(...dates.map(d => d.getTime())));
+    let maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
+
+    // Timeline headers
+    const mainHeaderUnits: { label: string, span: number }[] = [];
+    const subHeaderUnits: { label: string, isWeekend?: boolean }[] = [];
+    
+    const timeDiff = (d1: Date, d2: Date, unit: 'day' | 'week' | 'month') => {
+        const d1UTC = Date.UTC(d1.getFullYear(), d1.getMonth(), d1.getDate());
+        const d2UTC = Date.UTC(d2.getFullYear(), d2.getMonth(), d2.getDate());
+        if (unit === 'day') return Math.floor((d1UTC - d2UTC) / 86400000);
+        if (unit === 'week') return Math.floor((d1UTC - d2UTC) / (86400000 * 7));
+        return (d1.getFullYear() - d2.getFullYear()) * 12 + d1.getMonth() - d2.getMonth();
+    };
+
     if (granularity === 'days') {
-        minDate.setDate(minDate.getDate() - 2); maxDate.setDate(maxDate.getDate() + 2);
-        totalUnits = Math.ceil((maxDate.getTime() - minDate.getTime()) / 86400000);
-        let currentMonth = -1;
-        for (let i = 0; i < totalUnits; i++) {
-            const day = new Date(minDate); day.setDate(minDate.getDate() + i);
-            if (day.getMonth() !== currentMonth) {
-                if (headerUnits.length > 0) headerUnits[headerUnits.length-1].span = i - subHeaderUnits.length + headerUnits[headerUnits.length-1].span;
-                headerUnits.push({ label: `${day.getFullYear()}年 ${day.getMonth() + 1}月`, span: 1 });
-                currentMonth = day.getMonth();
-            } else if (i === 0) headerUnits.push({ label: `${day.getFullYear()}年 ${day.getMonth() + 1}月`, span: 0 });
-            subHeaderUnits.push({ label: `${day.getDate()}`, isWeekend: day.getDay() === 0 || day.getDay() === 6 });
+        minDate.setDate(minDate.getDate() - 3);
+        maxDate.setDate(maxDate.getDate() + 5);
+        let currentMonth = '';
+        for (let d = new Date(minDate); d <= maxDate; d.setDate(d.getDate() + 1)) {
+            const monthLabel = `${d.getFullYear()}年 ${d.getMonth() + 1}月`;
+            if (monthLabel !== currentMonth) {
+                mainHeaderUnits.push({ label: monthLabel, span: 1 });
+                currentMonth = monthLabel;
+            } else {
+                mainHeaderUnits[mainHeaderUnits.length - 1].span++;
+            }
+            subHeaderUnits.push({ label: `${d.getDate()}`, isWeekend: d.getDay() === 0 || d.getDay() === 6 });
         }
-        headerUnits[headerUnits.length - 1].span = totalUnits - (subHeaderUnits.length - headerUnits[headerUnits.length - 1].span);
     } else if (granularity === 'weeks') {
-        minDate.setDate(minDate.getDate() - 7); maxDate.setDate(maxDate.getDate() + 7);
-        totalUnits = Math.ceil((maxDate.getTime() - minDate.getTime()) / 604800000);
-        let currentMonth = -1;
-        for (let i = 0; i < totalUnits; i++) {
-            const weekStart = new Date(minDate); weekStart.setDate(minDate.getDate() + i * 7);
-            if (weekStart.getMonth() !== currentMonth) {
-                if (headerUnits.length > 0) headerUnits[headerUnits.length-1].span = i - subHeaderUnits.length + headerUnits[headerUnits.length-1].span;
-                headerUnits.push({ label: `${weekStart.getFullYear()}年 ${weekStart.getMonth() + 1}月`, span: 1 });
-                currentMonth = weekStart.getMonth();
-            } else if (i === 0) headerUnits.push({ label: `${weekStart.getFullYear()}年 ${weekStart.getMonth() + 1}月`, span: 0 });
-            subHeaderUnits.push({ label: `W${i + 1}` });
+        minDate = getWeekStartDate(minDate);
+        minDate.setDate(minDate.getDate() - 7);
+        maxDate.setDate(maxDate.getDate() + 14);
+        let currentYear = '';
+        for (let d = new Date(minDate); d <= maxDate; d.setDate(d.getDate() + 7)) {
+            const yearLabel = `${d.getFullYear()}年`;
+            if(yearLabel !== currentYear) {
+                mainHeaderUnits.push({label: yearLabel, span: 1});
+                currentYear = yearLabel;
+            } else {
+                mainHeaderUnits[mainHeaderUnits.length - 1].span++;
+            }
+            subHeaderUnits.push({ label: `${d.getMonth() + 1}/${d.getDate()}` });
         }
-        headerUnits[headerUnits.length - 1].span = totalUnits - (subHeaderUnits.length - headerUnits[headerUnits.length - 1].span);
     } else { // months
-        minDate.setMonth(minDate.getMonth() - 1); maxDate.setMonth(maxDate.getMonth() + 1);
-        totalUnits = (maxDate.getFullYear() - minDate.getFullYear()) * 12 + (maxDate.getMonth() - minDate.getMonth());
-        let currentYear = -1;
-        for (let i = 0; i < totalUnits; i++) {
-            const monthDate = new Date(minDate); monthDate.setMonth(minDate.getMonth() + i);
-            if (monthDate.getFullYear() !== currentYear) {
-                 if (headerUnits.length > 0) headerUnits[headerUnits.length-1].span = i - subHeaderUnits.length + headerUnits[headerUnits.length-1].span;
-                headerUnits.push({ label: `${monthDate.getFullYear()}年`, span: 1 });
-                currentYear = monthDate.getFullYear();
-            } else if (i === 0) headerUnits.push({ label: `${monthDate.getFullYear()}年`, span: 0 });
-            subHeaderUnits.push({ label: `${monthDate.getMonth() + 1}月` });
+        minDate.setDate(1); minDate.setMonth(minDate.getMonth() - 1);
+        maxDate.setMonth(maxDate.getMonth() + 2); maxDate.setDate(1);
+        let currentYear = '';
+         for (let d = new Date(minDate); d < maxDate; d.setMonth(d.getMonth() + 1)) {
+            const yearLabel = `${d.getFullYear()}年`;
+            if (yearLabel !== currentYear) {
+                mainHeaderUnits.push({ label: yearLabel, span: 1 });
+                currentYear = yearLabel;
+            } else {
+                mainHeaderUnits[mainHeaderUnits.length - 1].span++;
+            }
+            subHeaderUnits.push({ label: `${d.getMonth() + 1}月` });
         }
-        headerUnits[headerUnits.length - 1].span = totalUnits - (subHeaderUnits.length - headerUnits[headerUnits.length - 1].span);
     }
+    
+    const totalUnits = subHeaderUnits.length;
     if (totalUnits > 1500) { app.timelineContainer.innerHTML = `<p>日期范围过大，请尝试使用更粗的时间粒度（周/月）。</p>`; return; }
+    
     const gridColWidth = `${Math.max(ganttZoomLevel, 10)}px`;
     const container = document.createElement('div');
     container.className = 'gantt-container';
-    container.style.gridTemplateColumns = `300px minmax(${totalUnits * ganttZoomLevel}px, 1fr)`;
+    container.style.gridTemplateColumns = `minmax(250px, 1.5fr) minmax(${totalUnits * ganttZoomLevel}px, 5fr)`;
+    
     const header = document.createElement('div');
     header.className = 'gantt-header';
-    header.innerHTML = `<div class="gantt-header-title">任务层级</div><div class="gantt-header-timeline" style="grid-template-columns: repeat(${totalUnits}, ${gridColWidth});"><div class="gantt-header-months">${headerUnits.map(u => `<div style="grid-column: span ${u.span}">${u.label}</div>`).join('')}</div><div class="gantt-header-days">${subHeaderUnits.map(u => `<div class="${u.isWeekend ? 'weekend' : ''}">${u.label}</div>`).join('')}</div></div>`;
-    container.appendChild(header);
+    header.innerHTML = `<div class="gantt-header-title">任务层级</div><div class="gantt-header-timeline" style="grid-template-columns: repeat(${totalUnits}, ${gridColWidth});"><div class="gantt-header-months">${mainHeaderUnits.map(u => `<div style="grid-column: span ${u.span}">${u.label}</div>`).join('')}</div><div class="gantt-header-days">${subHeaderUnits.map(u => `<div class="${u.isWeekend ? 'weekend' : ''}">${u.label}</div>`).join('')}</div></div>`;
+    
     const body = document.createElement('div');
     body.className = 'gantt-body';
     const taskListContainer = document.createElement('div');
@@ -407,43 +429,55 @@ function renderGanttChart(app: ITimelineApp): void {
     const barsContainer = document.createElement('div');
     barsContainer.className = 'gantt-body-bars';
     barsContainer.style.gridTemplateColumns = `repeat(${totalUnits}, ${gridColWidth})`;
+    
     tasksWithDates.forEach(({ task, indices }) => {
         const titleEl = document.createElement('div');
         titleEl.className = 'gantt-task-title';
         titleEl.textContent = task.任务名称;
         titleEl.style.paddingLeft = `${1 + (indices.taskPath.length - 1) * 1.5}rem`;
         taskListContainer.appendChild(titleEl);
+        
         const start = parseDate(task.开始时间);
         if (start) {
-            const endOrDefault = parseDate(task.截止日期) || new Date(start.getTime() + 86400000);
-            let startUnit = 0, duration = 0;
+            const endOrDefault = parseDate(task.截止日期) || new Date(start.getTime() + (granularity === 'days' ? 86400000 : 0));
+            
+            let startUnit = 0, endUnit = 0;
+
             if (granularity === 'days') {
-                startUnit = Math.floor((start.getTime() - minDate.getTime()) / 86400000);
-                duration = Math.ceil((endOrDefault.getTime() - start.getTime()) / 86400000) || 1;
+                startUnit = timeDiff(start, minDate, 'day');
+                endUnit = timeDiff(endOrDefault, minDate, 'day');
             } else if (granularity === 'weeks') {
-                startUnit = Math.floor((start.getTime() - minDate.getTime()) / 604800000);
-                duration = Math.ceil((endOrDefault.getTime() - start.getTime()) / 604800000) || 1;
-            } else {
-                startUnit = (start.getFullYear() - minDate.getFullYear()) * 12 + (start.getMonth() - minDate.getMonth());
-                duration = Math.ceil(((endOrDefault.getFullYear() - start.getFullYear()) * 12 + (endOrDefault.getMonth() - minDate.getMonth())) - ((start.getFullYear() - minDate.getFullYear()) * 12 + (start.getMonth() - minDate.getMonth()))) || 1;
+                startUnit = timeDiff(getWeekStartDate(start), minDate, 'week');
+                endUnit = timeDiff(getWeekStartDate(endOrDefault), minDate, 'week');
+            } else { // months
+                startUnit = timeDiff(start, minDate, 'month');
+                endUnit = timeDiff(endOrDefault, minDate, 'month');
             }
-            const statusClass = { '待办': 'todo', '进行中': 'inprogress', '已完成': 'completed' }[task.状态] || 'todo';
-            const bar = document.createElement('div');
-            bar.className = `gantt-bar gantt-bar-${statusClass}`;
-            bar.style.gridColumn = `${startUnit + 1} / span ${duration}`;
-            bar.title = `${task.任务名称} (${task.状态})`;
-            bar.innerHTML = `<span>${task.任务名称}</span>`;
-            bar.addEventListener('click', () => {
-                const taskData = app.getTaskFromPath(indices)?.task;
-                if (taskData) app.showEditModal(indices, taskData);
-            });
-            barsContainer.appendChild(bar);
+            const duration = Math.max(1, endUnit - startUnit);
+
+            if (startUnit < totalUnits && startUnit + duration > 0) {
+                 const statusClass = { '待办': 'todo', '进行中': 'inprogress', '已完成': 'completed' }[task.状态] || 'todo';
+                 const bar = document.createElement('div');
+                 bar.className = `gantt-bar gantt-bar-${statusClass}`;
+                 bar.style.gridColumn = `${Math.max(1, startUnit + 1)} / span ${duration}`;
+                 bar.title = `${task.任务名称} (${task.状态})`;
+                 bar.innerHTML = `<span>${task.任务名称}</span>`;
+                 bar.addEventListener('click', () => {
+                     const taskData = app.getTaskFromPath(indices)?.task;
+                     if (taskData) app.showEditModal(indices, taskData);
+                 });
+                 barsContainer.appendChild(bar);
+            } else {
+                 barsContainer.appendChild(document.createElement('div'));
+            }
         } else {
             barsContainer.appendChild(document.createElement('div'));
         }
     });
+
     body.appendChild(taskListContainer);
     body.appendChild(barsContainer);
+    container.appendChild(header);
     container.appendChild(body);
     app.timelineContainer.innerHTML = '';
     app.timelineContainer.appendChild(container);
@@ -527,33 +561,58 @@ function renderCalendar(app: ITimelineApp): void {
 function renderWorkloadView(app: ITimelineApp): void {
     const tasks = Array.from(app.flattenTasks()).filter(t => t.task.负责人Ids && t.task.开始时间);
     if (tasks.length === 0) {
-        app.timelineContainer.innerHTML = `<p>沒有可供分析的任務。請確保任務已分配負責人並設置了開始時間。</p>`;
+        app.timelineContainer.innerHTML = `<p>没有可供分析的任务。请确保任务已分配负责人并设置了开始时间。</p>`;
         return;
     }
+
     const workloadData: Record<string, Record<string, { count: number, tasks: 任务[] }>> = {};
-    const weekStarts = new Set<number>();
+    const allWeeks = new Set<number>();
+    
+    const allDates = tasks.flatMap(t => [parseDate(t.task.开始时间), parseDate(t.task.截止日期)]).filter((d): d is Date => d !== null);
+    if (allDates.length === 0) {
+        app.timelineContainer.innerHTML = `<p>任务没有有效的日期信息。</p>`;
+        return;
+    }
+    const minDate = getWeekStartDate(new Date(Math.min(...allDates.map(d=>d.getTime()))));
+    const maxDate = new Date(Math.max(...allDates.map(d=>d.getTime())));
+
+    for (let d = new Date(minDate); d <= maxDate; d.setDate(d.getDate() + 7)) {
+        allWeeks.add(getWeekStartDate(d).getTime());
+    }
+    
     tasks.forEach(({ task }) => {
         const assignees = task.负责人Ids || [];
         if (assignees.length === 0) return;
         const startDate = parseDate(task.开始时间);
         if (!startDate) return;
-        const weekStart = getWeekStartDate(startDate).getTime();
-        weekStarts.add(weekStart);
-        assignees.forEach(assigneeId => {
-            if (!workloadData[assigneeId]) workloadData[assigneeId] = {};
-            if (!workloadData[assigneeId][weekStart]) workloadData[assigneeId][weekStart] = { count: 0, tasks: [] };
-            workloadData[assigneeId][weekStart].count++;
-            workloadData[assigneeId][weekStart].tasks.push(task);
-        });
+        const endDate = parseDate(task.截止日期) || startDate;
+
+        let currentWeekStart = getWeekStartDate(startDate);
+        while (currentWeekStart <= endDate) {
+            const weekTime = currentWeekStart.getTime();
+            
+            assignees.forEach(assigneeId => {
+                if (!workloadData[assigneeId]) workloadData[assigneeId] = {};
+                if (!workloadData[assigneeId][weekTime]) workloadData[assigneeId][weekTime] = { count: 0, tasks: [] };
+                workloadData[assigneeId][weekTime].count++;
+                workloadData[assigneeId][weekTime].tasks.push(task);
+            });
+            currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+        }
     });
+
     const allAssigneeIds = Object.keys(workloadData).sort((a,b) => (app.state.allUsers.find(u=>u.id === a)?.username || '').localeCompare(app.state.allUsers.find(u=>u.id === b)?.username || ''));
-    const sortedWeeks = Array.from(weekStarts).sort();
+    const sortedWeeks = Array.from(allWeeks).sort();
     let maxWorkload = 1;
     Object.values(workloadData).forEach(d => Object.values(d).forEach(data => { if (data.count > maxWorkload) maxWorkload = data.count; }));
+    
     const table = document.createElement('div');
     table.className = 'workload-table';
+    table.style.gridTemplateColumns = `150px repeat(${sortedWeeks.length}, 1fr)`;
+
     table.innerHTML += `<div class="workload-header-cell">负责人</div>`;
     sortedWeeks.forEach(weekTime => { const d = new Date(weekTime); table.innerHTML += `<div class="workload-header-cell">${d.getMonth()+1}/${d.getDate()} 周</div>`; });
+    
     allAssigneeIds.forEach(assigneeId => {
         const user = app.state.allUsers.find(u => u.id === assigneeId);
         table.innerHTML += `<div class="workload-person-cell">${user?.profile.displayName || '未知用户'}</div>`;
@@ -567,24 +626,24 @@ function renderWorkloadView(app: ITimelineApp): void {
                 else if (data.count > maxWorkload * 0.4 || data.count > 2) workloadClass = 'medium';
                 const bar = document.createElement('div');
                 bar.className = `workload-bar ${workloadClass}`;
-                bar.style.height = `${(data.count / maxWorkload) * 100}%`;
+                bar.style.height = `${Math.min(100, (data.count / maxWorkload) * 100)}%`;
                 bar.textContent = `${data.count}`;
                 cell.appendChild(bar);
-                bar.addEventListener('mouseenter', () => {
+                bar.addEventListener('mouseenter', (e) => {
                     const tooltip = document.createElement('div');
                     tooltip.className = 'workload-tooltip';
                     tooltip.innerHTML = `<h5>${user?.profile.displayName} - ${new Date(weekTime).toLocaleDateString()}</h5><ul>${data.tasks.map(t => `<li>${t.任务名称}</li>`).join('')}</ul>`;
                     document.body.appendChild(tooltip);
                     const rect = bar.getBoundingClientRect();
-                    tooltip.style.left = `${rect.left + window.scrollX}px`;
-                    tooltip.style.top = `${rect.top + window.scrollY - tooltip.offsetHeight - 5}px`;
+                    tooltip.style.left = `${e.clientX + 10}px`;
+                    tooltip.style.top = `${e.clientY - tooltip.offsetHeight - 5}px`;
                 });
                 bar.addEventListener('mouseleave', () => document.querySelector('.workload-tooltip')?.remove());
             }
             table.appendChild(cell);
         });
     });
-    table.style.gridTemplateColumns = `150px repeat(${sortedWeeks.length}, 1fr)`;
+    
     app.timelineContainer.appendChild(table);
 }
 

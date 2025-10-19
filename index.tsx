@@ -29,7 +29,7 @@ export class TimelineApp implements ITimelineApp {
     chatHistory: [],
     lastUserMessage: null,
     chatAttachment: null,
-    chatModel: 'gemini-flash',
+    chatModel: 'gemini-2.5-pro',
     editingMessageIndex: null,
     filters: {
       status: [],
@@ -531,7 +531,7 @@ export class TimelineApp implements ITimelineApp {
             pendingTimeline: null,
         });
     
-        await handlers.submitChat.call(this, userMessageToResend, historyForResubmission, this.state.chatModel);
+        await handlers.submitChat.call(this, userMessageToResend, historyForResubmission);
     }
 
     public handleEditChatMessage(messageIndex: number): void {
@@ -562,7 +562,7 @@ export class TimelineApp implements ITimelineApp {
             pendingTimeline: null,
         });
     
-        await handlers.submitChat.call(this, userMessageToEdit, historyForResubmission, this.state.chatModel);
+        await handlers.submitChat.call(this, userMessageToEdit, historyForResubmission);
     }
 
     public handleDeleteChatMessage(messageIndex: number): void {
