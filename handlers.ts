@@ -267,6 +267,66 @@ export async function handleRefineProject(this: ITimelineApp): Promise<void> {
     }
 }
 
+export async function handleSyncWeeklyProgress(this: ITimelineApp): Promise<void> {
+    if (!this.state.apiKey) {
+        renderUI.showApiKeyModal(this, true);
+        alert("请先提供您的 API 密钥。");
+        return;
+    }
+    if (!this.state.timeline) return;
+
+    this.setState({ isLoading: true, loadingText: "正在整合周进度汇报..." });
+
+    try {
+        const prompt = `
+        作为一名专家级的项目管理AI，你的任务是处理并整合周进度汇报到项目计划中。你会收到一个JSON格式的项目计划。
+
+        **核心指令:**
+        1.  **扫描所有任务**: 遍历提供的JSON中的每一个任务和子任务。
+        2.  **分析讨论区**: 对每个任务，仔细检查其 '讨论' (discussion) 数组。
+        3.  **识别进度汇报**: 找出内容明显是进度汇报的评论。这些评论通常包含关键词，如“进度汇报”、“本周总结”、“已完成”、“同步一下进展”、“汇报一下”等。
+        4.  **整合信息**:
+            *   阅读这些进度汇报评论的内容。
+            *   根据汇报内容，更新该任务的主要属性。例如：
+                *   如果汇报说任务已完成，将任务的 '状态' 更新为 '已完成'，并将 '已完成' 字段设为 \`true\`。
+                *   如果汇报提供了具体的工作细节，将这些信息以“本周进展：”为前缀，追加到任务的 '备注' 字段中。
+                *   如果汇报提到了新的截止日期或延期，更新 '截止日期' 字段。
+        5.  **清理已处理的汇报**: **这是最关键的一步**。在整合完信息后，你必须从 '讨论' 数组中**只删除那些被你识别为进度汇报的评论**。所有其他非汇报性质的评论（例如：提问、常规讨论）**必须被完整保留**。
+        6.  **返回完整的JSON**: 返回与输入格式完全相同的、更新后的完整项目计划JSON。不要添加、删除或修改任何其他字段或任务。
+
+        以下是需要处理的项目数据:
+        ---
+        ${JSON.stringify(this.state.timeline)}
+        ---`;
+
+        const responseSchema = (this as any).createTimelineSchema();
+        const modelName = this.state.chatModel === 'gemini-flash' ? 'gemini-flash-latest' : 'gemini-2.5-pro';
+
+        const response = await this.ai.models.generateContent({
+            model: modelName,
+            contents: prompt,
+            config: { responseMimeType: "application/json", responseSchema: responseSchema },
+        });
+
+        const updatedTimelineData = JSON.parse(response.text);
+        updatedTimelineData.id = this.state.timeline.id;
+        updatedTimelineData.ownerId = this.state.timeline.ownerId;
+        updatedTimelineData.members = this.state.timeline.members;
+        
+        const finalTimeline = this.postProcessTimelineData(updatedTimelineData);
+
+        // Optimistically update the UI and then save in the background.
+        this.setState({ timeline: finalTimeline });
+        await this.saveCurrentProject(finalTimeline);
+
+    } catch (error) {
+        console.error("同步周进度时出错:", error);
+        alert("同步周进度失败，请稍后重试。这可能是由于 API 密钥无效或网络问题导致。");
+    } finally {
+        this.setState({ isLoading: false });
+    }
+}
+
 
 export function handleClearClick(this: ITimelineApp): void {
     this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null, pendingTimeline: null });

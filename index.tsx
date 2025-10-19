@@ -71,7 +71,8 @@ export class TimelineApp implements ITimelineApp {
   public saveStatusEl: HTMLElement;
   public userDisplayEl: HTMLElement;
   public aboutBtn: HTMLButtonElement;
-  public refineBtn: HTMLButtonElement;
+  public optimizeBtnToggle: HTMLButtonElement;
+  public optimizeDropdown: HTMLElement;
   public shareBtn: HTMLButtonElement;
   public clearBtn: HTMLButtonElement;
   public loadingOverlay: HTMLElement;
@@ -929,7 +930,7 @@ export class TimelineApp implements ITimelineApp {
             }
             
             this.shareBtn.style.display = userRole === 'Viewer' ? 'none' : 'inline-flex';
-            this.refineBtn.disabled = readOnly;
+            this.optimizeBtnToggle.disabled = readOnly;
             this.aiChangesConfirmBar.classList.toggle('hidden', !this.state.pendingTimeline);
             renderUI.renderViewSwitcher(this);
             renderUI.renderViewSpecificControls(this);

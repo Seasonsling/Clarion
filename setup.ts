@@ -21,7 +21,8 @@ export function cacheDOMElements(app: ITimelineApp): void {
     app.saveStatusEl = document.getElementById('save-status-indicator')!;
     app.userDisplayEl = document.getElementById('user-display')!;
     app.aboutBtn = document.getElementById('about-btn') as HTMLButtonElement;
-    app.refineBtn = document.getElementById('refine-btn') as HTMLButtonElement;
+    app.optimizeBtnToggle = document.getElementById('optimize-btn-toggle') as HTMLButtonElement;
+    app.optimizeDropdown = document.getElementById('optimize-dropdown') as HTMLElement;
     app.shareBtn = document.getElementById('share-btn') as HTMLButtonElement;
     app.clearBtn = document.getElementById("clear-btn") as HTMLButtonElement;
     app.loadingOverlay = document.getElementById("loading-overlay")!;
@@ -74,7 +75,25 @@ export function addEventListeners(app: ITimelineApp): void {
     app.importBtn.addEventListener("click", () => app.importFileEl.click());
     app.importFileEl.addEventListener("change", handlers.handleImport.bind(app));
     app.quickAddFormEl.addEventListener('submit', handlers.handleQuickAddTask.bind(app));
-    app.refineBtn.addEventListener('click', handlers.handleRefineProject.bind(app));
+
+    app.optimizeBtnToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        app.optimizeDropdown.classList.toggle('hidden');
+    });
+    app.optimizeDropdown.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        const button = target.closest('button[data-action]');
+        if (button) {
+            const action = button.getAttribute('data-action');
+            if (action === 'initial') {
+                handlers.handleRefineProject.call(app);
+            } else if (action === 'sync') {
+                handlers.handleSyncWeeklyProgress.call(app);
+            }
+            app.optimizeDropdown.classList.add('hidden');
+        }
+    });
+
     app.shareBtn.addEventListener('click', () => renderUI.showMembersModal(app));
     app.reportBtnToggle.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -86,7 +105,7 @@ export function addEventListeners(app: ITimelineApp): void {
         if (button) {
             const action = button.getAttribute('data-period');
             if (action === 'weekly' || action === 'monthly') {
-                handlers.handleGenerateReportClick.call(app, action);
+                handlers.handleGenerateReportClick.call(app, action as 'weekly' | 'monthly');
             } else if (action === 'plan') {
                 handlers.handleGeneratePlanClick.call(app);
             }
@@ -94,10 +113,12 @@ export function addEventListeners(app: ITimelineApp): void {
         }
     });
     document.addEventListener('click', (e) => {
-        if (!app.reportBtnToggle.contains(e.target as Node) && !app.reportDropdown.contains(e.target as Node)) {
-            if (!app.reportDropdown.classList.contains('hidden')) {
-                app.reportDropdown.classList.add('hidden');
-            }
+        const target = e.target as Node;
+        if (!app.reportBtnToggle.contains(target) && !app.reportDropdown.contains(target)) {
+            app.reportDropdown.classList.add('hidden');
+        }
+        if (!app.optimizeBtnToggle.contains(target) && !app.optimizeDropdown.contains(target)) {
+            app.optimizeDropdown.classList.add('hidden');
         }
     });
     
