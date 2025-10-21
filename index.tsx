@@ -209,10 +209,7 @@ export class TimelineApp implements ITimelineApp {
           try {
             await this.saveCurrentProject(project);
             alert(`成功加入项目 "${project.项目名称}"！您的默认角色是“观察员”。`);
-            this.setState({
-                timeline: project,
-                currentView: 'vertical'
-            });
+            this.handleLoadProject(project);
           } catch(e) {
              alert("加入项目失败，请稍后重试。");
              project.members.pop();
@@ -220,7 +217,7 @@ export class TimelineApp implements ITimelineApp {
             this.setState({ isLoading: false });
           }
       } else {
-          this.setState({ timeline: project, currentView: 'vertical' });
+          this.handleLoadProject(project);
       }
   }
 
@@ -535,8 +532,22 @@ export class TimelineApp implements ITimelineApp {
     }
 
     public handleLoadProject(project: 时间轴数据): void {
-        if(project) {
-            this.setState({ timeline: project, currentView: 'vertical', chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null, pendingTimeline: null });
+        if(project && this.state.currentUser) {
+            this.setState({ 
+                timeline: project, 
+                currentView: 'vertical', 
+                chatHistory: [], 
+                isChatOpen: false, 
+                collapsedItems: new Set(), 
+                previousTimelineState: null, 
+                pendingTimeline: null,
+                filters: {
+                    status: [],
+                    priority: [],
+                    assignee: [this.state.currentUser.id],
+                },
+                sortBy: 'default',
+            });
         }
     }
 
