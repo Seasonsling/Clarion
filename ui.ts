@@ -600,6 +600,66 @@ function showReportModal(app: ITimelineApp, isLoading: boolean, reportText: stri
     setTimeout(() => modalOverlay.classList.add('visible'), 10);
 }
 
+function showReportDateModal(app: ITimelineApp, type: 'weekly' | 'monthly'): void {
+    document.getElementById('report-date-modal-overlay')?.remove();
+    const modalOverlay = document.createElement('div');
+    modalOverlay.id = 'report-date-modal-overlay';
+    modalOverlay.className = 'modal-overlay';
+
+    const today = new Date();
+    const endDateDefault = today.toISOString().split('T')[0];
+    let startDate = new Date();
+    if (type === 'weekly') {
+        startDate.setDate(today.getDate() - 7);
+    } else { // monthly
+        startDate.setDate(today.getDate() - 30);
+    }
+    const startDateDefault = startDate.toISOString().split('T')[0];
+
+    modalOverlay.innerHTML = `
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>选择报告时间范围</h2>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <form id="report-date-form" class="modal-form" style="grid-template-columns: 1fr;">
+                <div class="form-group">
+                    <label for="report-start-date">开始日期</label>
+                    <input type="date" id="report-start-date" value="${startDateDefault}" required>
+                </div>
+                <div class="form-group">
+                    <label for="report-end-date">结束日期</label>
+                    <input type="date" id="report-end-date" value="${endDateDefault}" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="secondary-btn cancel-btn">取消</button>
+                    <button type="submit" class="primary-btn">生成${type === 'weekly' ? '周报' : '月报'}</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modalOverlay);
+
+    const close = () => modalOverlay.remove();
+    const form = modalOverlay.querySelector('form')!;
+    
+    modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) close(); });
+    modalOverlay.querySelector('.modal-close-btn')!.addEventListener('click', close);
+    modalOverlay.querySelector('.cancel-btn')!.addEventListener('click', close);
+    
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const startDate = (form.querySelector('#report-start-date') as HTMLInputElement).value;
+        const endDate = (form.querySelector('#report-end-date') as HTMLInputElement).value;
+        if (startDate && endDate) {
+            close();
+            handlers.handleGenerateReportClick.call(app, type, startDate, endDate);
+        }
+    });
+
+    setTimeout(() => modalOverlay.classList.add('visible'), 10);
+}
+
 function showWeeklyPlanAssistantModal(app: ITimelineApp): void {
   document.getElementById('weekly-plan-modal-overlay')?.remove();
   const modalOverlay = document.createElement('div');
@@ -624,13 +684,16 @@ function showWeeklyPlanAssistantModal(app: ITimelineApp): void {
   const footerEl = modalContent.querySelector('#weekly-plan-modal-footer') as HTMLElement;
 
   let newTasksText = '';
+  let startDate = new Date();
+  let endDate = new Date();
+  endDate.setDate(startDate.getDate() + 7);
 
   const close = () => modalOverlay.remove();
   modalContent.querySelector('.modal-close-btn')!.addEventListener('click', close);
   modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) close(); });
 
-  const renderStep3 = () => {
-      titleEl.textContent = '第 3/3 步: 选择计划成员';
+  const renderStep4 = () => {
+      titleEl.textContent = '第 4/4 步: 选择计划成员';
       const members = app.state.timeline?.members || [];
       const users = app.state.allUsers;
       const memberOptions = members.map(member => {
@@ -656,12 +719,12 @@ function showWeeklyPlanAssistantModal(app: ITimelineApp): void {
          </div>
       `;
       footerEl.innerHTML = `
-         <button type="button" class="secondary-btn" id="plan-step3-back">返回</button>
-         <button type="button" class="primary-btn" id="plan-step3-generate">生成计划</button>
+         <button type="button" class="secondary-btn" id="plan-step4-back">返回</button>
+         <button type="button" class="primary-btn" id="plan-step4-generate">生成计划</button>
       `;
 
-      const generateBtn = footerEl.querySelector('#plan-step3-generate')!;
-      const backBtn = footerEl.querySelector('#plan-step3-back')!;
+      const generateBtn = footerEl.querySelector('#plan-step4-generate')!;
+      const backBtn = footerEl.querySelector('#plan-step4-back')!;
       const selectAllCheckbox = bodyEl.querySelector('#plan-select-all') as HTMLInputElement;
       const memberCheckboxes = bodyEl.querySelectorAll<HTMLInputElement>('input[name="plan-member"]');
       
@@ -685,13 +748,53 @@ function showWeeklyPlanAssistantModal(app: ITimelineApp): void {
             return;
         }
         close();
-        handlers.executeGeneratePlan.call(app, newTasksText, selectedIds);
+        handlers.executeGeneratePlan.call(app, newTasksText, selectedIds, startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]);
+      });
+      backBtn.addEventListener('click', renderStep3);
+  };
+  
+    const renderStep3 = () => {
+      titleEl.textContent = '第 3/4 步: 设置计划周期';
+      const startDateDefault = startDate.toISOString().split('T')[0];
+      const endDateDefault = endDate.toISOString().split('T')[0];
+
+      bodyEl.innerHTML = `
+         <p>请为即将生成的周计划设置一个时间范围。</p>
+         <div class="modal-form" style="grid-template-columns: 1fr;">
+            <div class="form-group">
+                <label for="plan-start-date">开始日期</label>
+                <input type="date" id="plan-start-date" value="${startDateDefault}" required>
+            </div>
+            <div class="form-group">
+                <label for="plan-end-date">结束日期</label>
+                <input type="date" id="plan-end-date" value="${endDateDefault}" required>
+            </div>
+         </div>
+      `;
+      footerEl.innerHTML = `
+         <button type="button" class="secondary-btn" id="plan-step3-back">返回</button>
+         <button type="button" class="primary-btn" id="plan-step3-next">下一步</button>
+      `;
+      
+      const nextBtn = footerEl.querySelector('#plan-step3-next')!;
+      const backBtn = footerEl.querySelector('#plan-step3-back')!;
+      const startDateInput = bodyEl.querySelector('#plan-start-date') as HTMLInputElement;
+      const endDateInput = bodyEl.querySelector('#plan-end-date') as HTMLInputElement;
+
+      nextBtn.addEventListener('click', () => {
+          startDate = new Date(startDateInput.value);
+          endDate = new Date(endDateInput.value);
+          if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()) || endDate < startDate) {
+              alert("请输入有效的开始和结束日期。");
+              return;
+          }
+          renderStep4();
       });
       backBtn.addEventListener('click', renderStep2);
   };
 
   const renderStep2 = () => {
-    titleEl.textContent = '第 2/3 步: 新增任务需求';
+    titleEl.textContent = '第 2/4 步: 新增任务需求';
     bodyEl.innerHTML = `
       <p>请输入本周需要额外处理的新任务、目标或工作重点。AI 会将它们智能地融入计划中。如果无新增内容，请留空。</p>
       <div class="form-group full-width" style="margin: 0;">
@@ -717,7 +820,7 @@ function showWeeklyPlanAssistantModal(app: ITimelineApp): void {
   };
 
   const renderStep1 = () => {
-    titleEl.textContent = '第 1/3 步: 同步项目进度';
+    titleEl.textContent = '第 1/4 步: 同步项目进度';
     bodyEl.innerHTML = `
       <p>在制定新计划前，建议先让 AI 自动同步上周的项目进度。</p>
       <p>AI 会读取所有任务下的评论，智能识别进度汇报，并将其更新到任务的状态和详情中。</p>
@@ -764,5 +867,6 @@ export const renderUI = {
     showEditModal,
     showMembersModal,
     showReportModal,
+    showReportDateModal,
     showWeeklyPlanAssistantModal,
 };

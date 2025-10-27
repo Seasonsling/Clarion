@@ -484,7 +484,7 @@ export function handleApiKeySubmit(this: ITimelineApp, event: Event): void {
     renderUI.showApiKeyModal(this, false);
 }
 
-export async function handleGenerateReportClick(this: ITimelineApp, period: 'weekly' | 'monthly'): Promise<void> {
+export async function handleGenerateReportClick(this: ITimelineApp, period: 'weekly' | 'monthly', startDate: string, endDate: string): Promise<void> {
     if (!this.state.apiKey) {
         renderUI.showApiKeyModal(this, true);
         alert("请先提供您的 API 密钥。");
@@ -493,9 +493,8 @@ export async function handleGenerateReportClick(this: ITimelineApp, period: 'wee
     const reportTitle = period === 'weekly' ? '周报' : '月报';
     renderUI.showReportModal(this, true, '', reportTitle);
     try {
-        const currentDate = new Date().toLocaleDateString('en-CA');
-        const periodText = period === 'weekly' ? '过去7天' : '过去30天';
-        const nextPeriodText = period === 'weekly' ? '未来7天' : '未来30天';
+        const periodText = `从 ${startDate} 到 ${endDate}`;
+        const nextPeriodText = `未来一周`;
         
         const isOwner = this.state.timeline?.ownerId === this.state.currentUser?.id;
         const currentUser = this.state.currentUser;
@@ -508,7 +507,7 @@ export async function handleGenerateReportClick(this: ITimelineApp, period: 'wee
             userContextPrompt = `\n**CRITICAL**: This report is for a specific team member: ${currentUser.profile.displayName} (ID: ${currentUser.id}). The entire report (progress, accomplishments, risks, next steps) MUST focus exclusively on tasks assigned to this user.\n`;
         }
         
-        const prompt = `As a professional project manager AI, analyze the following project plan JSON to generate a concise, structured Chinese project status report for the **${periodText}**. The current date is ${currentDate}.
+        const prompt = `As a professional project manager AI, analyze the following project plan JSON to generate a concise, structured Chinese project status report for the period **from ${startDate} to ${endDate}**.
 
 **CRITICAL INSTRUCTION ON PERSONNEL IDENTIFICATION:**
 You are provided with a list of project members mapping their user ID to their display name. This is the ground truth. In your entire generated report, whenever you refer to a person (e.g., a task assignee), you **MUST** use their display name from this list. It is strictly forbidden to output a raw user ID (e.g., "3", "user-123"). For example, if a task has \`"负责人Ids": ["3"]\` and the list shows ID "3" is "张三", you must write "负责人: 张三".
@@ -518,11 +517,11 @@ ${membersList}
 ${userContextPrompt}
 The report must follow this structure, including the markdown-style headers:
 ### 1. 本期总体进度 (Overall Progress This Period)
-Summarize the project's health and progress in the **${periodText}**.
+Summarize the project's health and progress in the period **${periodText}**.
 ### 2. 本期关键成果 (Key Accomplishments This Period)
-List important tasks marked '已完成' during the **${periodText}**.
+List important tasks marked '已完成' during the period **${periodText}**.
 ### 3. 延期、阻碍与风险 (Delays, Obstacles & Risks)
-Identify tasks past their '截止日期' but not '已完成'. Infer reasons for delay. Highlight obstacles and risks.
+Identify tasks with a '截止日期' within the period **${periodText}** that are not yet '已完成'. Infer reasons for delay. Highlight obstacles and risks.
 ### 4. 下期工作计划 (Next Period's Plan)
 List key tasks scheduled or due within the **${nextPeriodText}**.
 
@@ -554,12 +553,10 @@ export function handleGeneratePlanClick(this: ITimelineApp): void {
     renderUI.showWeeklyPlanAssistantModal(this);
 }
 
-export async function executeGeneratePlan(this: ITimelineApp, newTasksText: string, selectedMemberIds: string[]): Promise<void> {
+export async function executeGeneratePlan(this: ITimelineApp, newTasksText: string, selectedMemberIds: string[], startDate: string, endDate: string): Promise<void> {
     const title = '周度计划';
     this.setState({ isLoading: true, loadingText: "正在为您规划下周的作战部署..." });
     try {
-        const today = new Date();
-        const nextWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
         const allUsersMap = new Map(this.state.allUsers.map(u => [u.id, u.profile.displayName]));
         const selectedMembersInfo = selectedMemberIds.map(id => `- ${allUsersMap.get(id) || `ID: ${id}`}`).join('\n');
         const allMembersListForPrompt = this.state.timeline?.members.map(m => `- ${allUsersMap.get(m.userId) || '未知成员'} (ID: ${m.userId})`).join('\n') || '无';
@@ -573,7 +570,7 @@ ${newTasksText}
             : '';
 
         const prompt = `
-作为一名专家级的项目管理AI，你的任务是根据给定的项目JSON数据，为接下来的一周（从 ${today.toLocaleDateString('zh-CN')} 到 ${nextWeek.toLocaleDateString('zh-CN')}）生成一份清晰、可执行的中文周度计划。
+作为一名专家级的项目管理AI，你的任务是根据给定的项目JSON数据，为指定的计划周期（从 ${startDate} 到 ${endDate}）生成一份清晰、可执行的中文周度计划。
 
 **CRITICAL INSTRUCTION ON PERSONNEL IDENTIFICATION:**
 You are provided with a list of project members mapping their user ID to their display name. This is your ground truth. In your entire generated plan, whenever you refer to a person, you **MUST** use their display name. It is strictly forbidden to output a raw user ID. For example, if a task has \`"负责人Ids": ["3"]\` and the list shows ID "3" is "张三", you must write "负责人: 张三".
@@ -583,7 +580,7 @@ You are provided with a list of project members mapping their user ID to their d
     **选定成员列表:**
     ${selectedMembersInfo}
 2.  **处理新增任务**: ${newTasksPromptSection || '（本周无新增任务指令）'}
-3.  **聚焦未来**: 只分析状态为“待办”或“进行中”，且“开始时间”或“截止日期”在未来10天内的任务。
+3.  **聚焦时间范围**: 只分析状态为“待办”或“进行中”，且“开始时间”或“截止日期”在 **${startDate} 和 ${endDate}** 之间的任务。
 4.  **使用显示名称**: 再次强调，**绝对不能使用用户 ID**，必须使用显示名称。参考列表如下：
     **项目所有成员参考 (ID to Name mapping):**
     ${allMembersListForPrompt}
@@ -598,7 +595,7 @@ ${JSON.stringify(this.state.timeline, null, 2)}
 ---
 **【输出格式示例】**
 ---
-${new Date().getFullYear()}-${today.getMonth() + 1}-${today.getDate()} ~ ${nextWeek.getFullYear()}.${nextWeek.getMonth() + 1}.${nextWeek.getDate()}
+${startDate} ~ ${endDate}
 A. 邱一波 & 孟源馨 (国赛冲刺与设计团队)
 1. 国赛PPT最终冲刺 (T0级任务，10月15日前必须完成)
     ○ 任务1.1 (一波): 全力完成国赛PPT的最终精细打磨。
