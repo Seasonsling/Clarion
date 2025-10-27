@@ -1,4 +1,4 @@
-import type { ITimelineApp, 时间轴数据, CurrentUser, ChatMessage } from './types.js';
+import type { ITimelineApp, 时间轴数据, CurrentUser, ChatMessage, 任务 } from './types.js';
 import { GoogleGenAI, Type } from "@google/genai";
 import * as api from './api.js';
 import { renderUI } from './ui.js';
@@ -16,8 +16,8 @@ function getApiErrorMessage(error: unknown, context: string): string {
         if (error.message.includes('API key')) {
             return `${baseMessage}：您的 API 密钥似乎无效或已过期。请在用户设置中检查并更新。`;
         }
-        if (error.message.includes('timed out') || error.message.includes('network')) {
-            return `${baseMessage}：网络连接超时。请检查您的网络并重试。`;
+        if (error.message.includes('timed out') || error.message.includes('network') || error.message.includes('fetch')) {
+            return `${baseMessage}：网络连接或请求失败。这可能是由于项目数据过大或网络不稳定。请稍后重试。`;
         }
         if (error.message.includes('JSON')) {
              return `${baseMessage}：AI 返回了无效的数据格式。这可能是由于任务过于复杂或模型暂时不稳定。`;
@@ -300,60 +300,136 @@ export async function handleSyncWeeklyProgress(this: ITimelineApp): Promise<void
     }
     if (!this.state.timeline) return;
 
+    const tasksWithComments: { task: 任务; path: string[] }[] = [];
+    for (const item of this.flattenTasks()) {
+        if (item.task.讨论 && item.task.讨论.length > 0) {
+            const taskCopy = JSON.parse(JSON.stringify(item.task));
+            if (taskCopy.讨论) {
+                taskCopy.讨论.forEach((c: any) => delete c.attachments);
+            }
+            tasksWithComments.push({ task: taskCopy, path: item.path });
+        }
+    }
+
+    if (tasksWithComments.length === 0) {
+        alert("没有找到需要同步进度的评论。");
+        return;
+    }
+
     this.setState({ isLoading: true, loadingText: "正在整合周进度汇报..." });
 
     try {
         const today = new Date();
+        const updateSchema = {
+            type: Type.OBJECT,
+            properties: {
+                状态: { type: Type.STRING, enum: ['待办', '进行中', '已完成'], description: "The new status of the task." },
+                详情: { type: Type.STRING, description: "The full, updated details of the task, appending the new progress." },
+                截止日期: { type: Type.STRING, description: "The new deadline in 'YYYY-MM-DD HH:mm' format." },
+            },
+        };
+
+        const changeSchema = {
+            type: Type.OBJECT,
+            properties: {
+                taskId: { type: Type.STRING, description: "The unique ID of the task to be updated." },
+                updates: { ...updateSchema, description: "An object containing the fields to update." },
+                commentIdsToDelete: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "An array of comment IDs that were identified as progress reports and should be deleted."
+                }
+            },
+            required: ["taskId"],
+        };
+
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                changes: {
+                    type: Type.ARRAY,
+                    items: changeSchema
+                }
+            },
+            required: ["changes"]
+        };
+
         const prompt = `
         ${(this as any).getCurrentDateContext()}
-        作为一名专家级的项目管理AI，你的任务是处理并整合周进度汇报到项目计划中。你会收到一个JSON格式的项目计划。
+        As an expert project management AI, your task is to process weekly progress reports. I will provide you with a JSON array of tasks that contain discussion comments. Analyze these comments to determine necessary updates.
 
-        **核心指令:**
-        1.  **扫描所有任务**: 遍历提供的JSON中的每一个任务和子任务。
-        2.  **分析讨论区**: 对每个任务，仔细检查其 '讨论' (discussion) 数组。
-        3.  **识别进度汇报**: 找出内容明显是进度汇报的评论。这些评论通常包含关键词，如“进度汇报”、“本周总结”、“已完成”、“同步一下进展”、“汇报一下”等。
-        4.  **整合信息 (这是最重要的部分)**:
-            *   **更新状态**: 如果汇报明确表示任务已完成，将任务的 '状态' 更新为 '已完成'，并将 '已完成' 字段设为 \`true\`。
-            *   **写入详情 (关键)**: 如果汇报提供了具体的工作细节或进展描述，你必须将这些信息以清晰的格式（例如，另起一行并使用【${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()} 进展】作为标题）**追加**到任务的 '详情' (\`details\`) 字段中。如果'详情'字段原本为空，则直接写入。**不要**使用 '备注' (\`notes\`) 字段。
-            *   **精确时间匹配 (关键)**: 如果汇报中提到了任何关于时间的表述（例如：“预计下周完成”、“延期到后天”、“明天下午3点前提交”），你必须基于我提供的当前时间上下文，将其解析为精确的 "YYYY-MM-DD HH:mm" 格式，并更新任务的 '截止日期' (\`deadline\`) 字段。
-        5.  **清理已处理的汇报**: 在整合完信息后，你必须从 '讨论' 数组中**只删除那些被你识别为进度汇报的评论**。所有其他非汇报性质的评论（例如：提问、常规讨论）**必须被完整保留**。
-        6.  **返回完整的JSON**: 返回与输入格式完全相同的、更新后的完整项目计划JSON。不要添加、删除或修改任何其他字段或任务。
+        **Core Instructions:**
+        1.  **Analyze Comments**: For each task, review its '讨论' (discussion) array to identify comments that are progress reports (e.g., containing "progress report," "summary," "completed," "update," etc.).
+        2.  **Determine Updates**: Based on the progress reports, decide what changes need to be made to the task itself.
+            *   **Status Update**: If a report indicates completion, the new status should be '已完成'.
+            *   **Details Append**: Append the progress details from the report to the task's existing '详情' (details) field. Use a clear format like adding a new line with a title: "【${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()} 进展】". Return the *entire* updated details string.
+            *   **Deadline Update**: If a report mentions a new deadline, parse it based on the current time context and update the '截止日期' (deadline) to 'YYYY-MM-DD HH:mm' format.
+        3.  **Identify Comments for Deletion**: List the IDs of only the comments you processed as progress reports. Do not delete normal questions or discussions.
+        4.  **Format Response**: Respond with a single JSON object containing a "changes" array. Each element in the array should correspond to a task that needs updates, specifying the \`taskId\`, the \`updates\` object, and the \`commentIdsToDelete\` array. If a task requires no changes, do not include it in your response.
 
-        以下是需要处理的项目数据:
+        Here are the tasks and their comments to analyze:
         ---
-        ${JSON.stringify(this.state.timeline)}
-        ---`;
-
-        const responseSchema = (this as any).createTimelineSchema();
-        // Force the use of the more powerful model for this complex, critical task to improve reliability.
+        ${JSON.stringify(tasksWithComments, null, 2)}
+        ---
+        `;
+        
         const modelName = 'gemini-2.5-pro';
 
         const response = await this.ai.models.generateContent({
             model: modelName,
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: responseSchema },
+            config: { responseMimeType: "application/json", responseSchema },
         });
-
-        const updatedTimelineData = JSON.parse(response.text);
-        updatedTimelineData.id = this.state.timeline.id;
-        updatedTimelineData.ownerId = this.state.timeline.ownerId;
-        updatedTimelineData.members = this.state.timeline.members;
         
-        const finalTimeline = this.postProcessTimelineData(updatedTimelineData);
+        const result = JSON.parse(response.text);
+        if (result.changes && Array.isArray(result.changes)) {
+            const updatedTimeline = JSON.parse(JSON.stringify(this.state.timeline));
+            const allTasksMap = new Map();
+            const flattenForUpdate = (tasks: 任务[]) => {
+                if (!tasks) return;
+                tasks.forEach(task => {
+                    allTasksMap.set(task.id, task);
+                    if (task.子任务) flattenForUpdate(task.子任务);
+                });
+            };
+            updatedTimeline.阶段.forEach((phase: any) => {
+                if(phase.任务) flattenForUpdate(phase.任务);
+                if(phase.项目) phase.项目.forEach((proj: any) => flattenForUpdate(proj.任务));
+            });
 
-        // Optimistically update the UI and then save in the background.
-        this.setState({ timeline: finalTimeline });
-        await this.saveCurrentProject(finalTimeline);
+            let changesApplied = false;
+            for (const change of result.changes) {
+                const taskToUpdate = allTasksMap.get(change.taskId);
+                if (taskToUpdate) {
+                    changesApplied = true;
+                    if (change.updates) {
+                        Object.assign(taskToUpdate, change.updates);
+                        if (change.updates.状态 === '已完成') {
+                            taskToUpdate.已完成 = true;
+                        }
+                    }
+                    if (change.commentIdsToDelete && taskToUpdate.讨论) {
+                        taskToUpdate.讨论 = taskToUpdate.讨论.filter((c: any) => !change.commentIdsToDelete.includes(c.id));
+                    }
+                }
+            }
+
+            if (changesApplied) {
+                this.setState({ timeline: updatedTimeline });
+                await this.saveCurrentProject(updatedTimeline);
+            } else {
+                alert("AI分析完成，未发现可同步的进度更新。");
+            }
+        }
 
     } catch (error) {
         console.error("同步周进度时出错:", error);
         alert(getApiErrorMessage(error, "同步周进度"));
-        throw error; // Re-throw to be caught by the caller if needed
+        throw error;
     } finally {
         this.setState({ isLoading: false });
     }
 }
-
 
 export function handleClearClick(this: ITimelineApp): void {
     this.setState({ timeline: null, chatHistory: [], isChatOpen: false, collapsedItems: new Set(), previousTimelineState: null, pendingTimeline: null });
