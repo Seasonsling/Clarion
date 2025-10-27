@@ -74,3 +74,62 @@ export function blobToBase64(blob: Blob): Promise<string> {
         reader.readAsDataURL(blob);
     });
 }
+
+
+export function formatInlineMarkdown(text: string): string {
+    return text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`(.*?)`/g, '<code>$1</code>');
+}
+
+export function simpleMarkdownToHtml(markdown: string): string {
+    if (!markdown) return '';
+    const lines = markdown.split('\n');
+    let html = '';
+    let inList = false;
+
+    for (const line of lines) {
+        // Headers
+        if (line.startsWith('# ')) {
+            if (inList) { html += '</ul>'; inList = false; }
+            html += `<h1>${formatInlineMarkdown(line.substring(2))}</h1>`;
+            continue;
+        }
+        if (line.startsWith('## ')) {
+            if (inList) { html += '</ul>'; inList = false; }
+            html += `<h2>${formatInlineMarkdown(line.substring(3))}</h2>`;
+            continue;
+        }
+        if (line.startsWith('### ')) {
+            if (inList) { html += '</ul>'; inList = false; }
+            html += `<h3>${formatInlineMarkdown(line.substring(4))}</h3>`;
+            continue;
+        }
+        // Unordered list
+        if (line.startsWith('- ') || line.startsWith('* ')) {
+            if (!inList) { html += '<ul>'; inList = true; }
+            html += `<li>${formatInlineMarkdown(line.substring(2))}</li>`;
+            continue;
+        }
+        // Close list if line is not a list item anymore
+        if (inList) {
+            html += '</ul>';
+            inList = false;
+        }
+        // Horizontal rule
+        if (line.startsWith('---')) {
+            html += '<hr>';
+            continue;
+        }
+        // Paragraph
+        if (line.trim() !== '') {
+            html += `<p>${formatInlineMarkdown(line)}</p>`;
+        }
+    }
+
+    if (inList) { // Close any open list at the end
+        html += '</ul>';
+    }
+
+    return html;
+}

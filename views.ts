@@ -1,4 +1,4 @@
-import { parseDate, getWeekStartDate } from './utils.js';
+import { parseDate, getWeekStartDate, simpleMarkdownToHtml } from './utils.js';
 import type { ITimelineApp, 阶段, 任务, TopLevelIndices, Indices, CommentAttachment } from './types.js';
 import { renderUI } from './ui.js';
 
@@ -238,8 +238,18 @@ function createTasksList(app: ITimelineApp, tasks: 任务[], baseIndices: TopLev
             return el;
         };
         
-        const detailsEl = renderField(task.详情, '详情', 'p', 'task-details');
-        if (detailsEl) taskBody.appendChild(detailsEl);
+        if (task.详情) {
+            const detailsEl = document.createElement('div');
+            detailsEl.className = 'task-details'; // Use a div to allow block elements from markdown
+            const detailsChange = taskDiff?.changes?.['详情'];
+            const detailsContent = simpleMarkdownToHtml(task.详情);
+            if (detailsChange) {
+                detailsEl.innerHTML = `<span class="field-changed" title="之前: ${escapeHtml(detailsChange.from)}">${detailsContent}</span>`;
+            } else {
+                detailsEl.innerHTML = detailsContent;
+            }
+            taskBody.appendChild(detailsEl);
+        }
         
         const metaEl = document.createElement('div');
         metaEl.className = 'task-meta';

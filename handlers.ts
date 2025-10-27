@@ -356,16 +356,37 @@ export async function handleSyncWeeklyProgress(this: ITimelineApp): Promise<void
 
         const prompt = `
         ${(this as any).getCurrentDateContext()}
-        As an expert project management AI, your task is to process weekly progress reports. I will provide you with a JSON array of tasks that contain discussion comments. Analyze these comments to determine necessary updates.
+        As an expert project management AI, your task is to process weekly progress reports from comments and intelligently update the associated tasks. I will provide you with a JSON array of tasks that contain discussion comments.
+
+        **The Goal:**
+        Transform the task's '详情' (details) field into a structured, clear, and actionable summary. Instead of just appending text, you will rewrite the '详情' to maintain distinct sections for the task's core objective, completed work, and future plans.
 
         **Core Instructions:**
         1.  **Analyze Comments**: For each task, review its '讨论' (discussion) array to identify comments that are progress reports (e.g., containing "progress report," "summary," "completed," "update," etc.).
-        2.  **Determine Updates**: Based on the progress reports, decide what changes need to be made to the task itself.
-            *   **Status Update**: If a report indicates completion, the new status should be '已完成'.
-            *   **Details Append**: Append the progress details from the report to the task's existing '详情' (details) field. Use a clear format like adding a new line with a title: "【${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()} 进展】". Return the *entire* updated details string.
+        2.  **Structure the '详情' Field**: You must rewrite the entire '详情' field for each updated task to follow this specific Markdown format:
+            ---
+            **[原始任务目标 - This should be a concise summary of the original task goal, preserved from the existing details]**
+
+            ---
+            **✅ 已完成事项:**
+            *   [List of completed items. Move items from the old '下一步计划' here if the comments indicate they are done.]
+            *   [Summarize any newly completed items from the comments here.]
+
+            **下一步计划:**
+            *   [List of remaining to-do items from the old '下一步计划'.]
+            *   [Add any new action items or next steps identified from the comments here.]
+            ---
+
+        3.  **Determine Updates based on Comments**:
+            *   **Status Update**: If a report indicates the entire task is finished, the new status should be '已完成'. Otherwise, if work has been done, it should be '进行中'.
+            *   **Details Rewrite**: Analyze both the existing '详情' and the new comments.
+                *   Preserve the original task objective.
+                *   Identify completed work from the comments and the old '下一步计划'. Move/add these to the '✅ 已完成事项' list.
+                *   Identify remaining or new action items. List them under '下一步计划'.
+                *   Return the *entire*, rewritten '详情' field in the structured Markdown format above.
             *   **Deadline Update**: If a report mentions a new deadline, parse it based on the current time context and update the '截止日期' (deadline) to 'YYYY-MM-DD HH:mm' format.
-        3.  **Identify Comments for Deletion**: List the IDs of only the comments you processed as progress reports. Do not delete normal questions or discussions.
-        4.  **Format Response**: Respond with a single JSON object containing a "changes" array. Each element in the array should correspond to a task that needs updates, specifying the \`taskId\`, the \`updates\` object, and the \`commentIdsToDelete\` array. If a task requires no changes, do not include it in your response.
+        4.  **Identify Comments for Deletion**: List the IDs of only the comments you processed as progress reports. Do not delete normal questions or discussions.
+        5.  **Format Response**: Respond with a single JSON object containing a "changes" array. Each element should correspond to a task that needs updates, specifying the \`taskId\`, the \`updates\` object, and the \`commentIdsToDelete\` array. If a task requires no changes, do not include it.
 
         Here are the tasks and their comments to analyze:
         ---

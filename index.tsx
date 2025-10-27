@@ -4,7 +4,7 @@ import {
     ProjectMember, User, ITimelineApp, ProjectMemberRole, ChatMessage, TaskDiff, ChatModel, CommentAttachment 
 } from './types.js';
 import * as api from './api.js';
-import { decodeJwtPayload } from './utils.js';
+import { decodeJwtPayload, simpleMarkdownToHtml } from './utils.js';
 import { renderUI } from './ui.js';
 import { renderView } from './views.js';
 import { cacheDOMElements, addEventListeners } from './setup.js';
@@ -812,63 +812,6 @@ export class TimelineApp implements ITimelineApp {
         this.setState({ pendingTimeline: null });
     }
 
-    private formatInlineMarkdown(text: string): string {
-        return text
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/`(.*?)`/g, '<code>$1</code>');
-    }
-    
-    private simpleMarkdownToHtml(markdown: string): string {
-        const lines = markdown.split('\n');
-        let html = '';
-        let inList = false;
-    
-        for (const line of lines) {
-            // Headers
-            if (line.startsWith('# ')) {
-                if (inList) { html += '</ul>'; inList = false; }
-                html += `<h1>${this.formatInlineMarkdown(line.substring(2))}</h1>`;
-                continue;
-            }
-            if (line.startsWith('## ')) {
-                if (inList) { html += '</ul>'; inList = false; }
-                html += `<h2>${this.formatInlineMarkdown(line.substring(3))}</h2>`;
-                continue;
-            }
-            if (line.startsWith('### ')) {
-                if (inList) { html += '</ul>'; inList = false; }
-                html += `<h3>${this.formatInlineMarkdown(line.substring(4))}</h3>`;
-                continue;
-            }
-            // Unordered list
-            if (line.startsWith('- ')) {
-                if (!inList) { html += '<ul>'; inList = true; }
-                html += `<li>${this.formatInlineMarkdown(line.substring(2))}</li>`;
-                continue;
-            }
-            // Close list if line is not a list item anymore
-            if (inList) {
-                html += '</ul>';
-                inList = false;
-            }
-            // Horizontal rule
-            if (line.startsWith('---')) {
-                html += '<hr>';
-                continue;
-            }
-            // Paragraph
-            if (line.trim() !== '') {
-                html += `<p>${this.formatInlineMarkdown(line)}</p>`;
-            }
-        }
-    
-        if (inList) { // Close any open list at the end
-            html += '</ul>';
-        }
-    
-        return html;
-    }
-
     private async showAboutModal(): Promise<void> {
         document.getElementById('about-modal-overlay')?.remove();
 
@@ -888,7 +831,7 @@ export class TimelineApp implements ITimelineApp {
         modalOverlay.id = 'about-modal-overlay';
         modalOverlay.className = 'modal-overlay';
         
-        const aboutHtml = this.simpleMarkdownToHtml(aboutMarkdown);
+        const aboutHtml = simpleMarkdownToHtml(aboutMarkdown);
         const contentContainer = `<div class="modal-body about-content">${aboutHtml}</div>`;
         modalOverlay.innerHTML = `<div class="modal-content report-modal"><div class="modal-header"><h2>关于 “吹角”</h2><button class="modal-close-btn close-btn">&times;</button></div>${contentContainer}<div class="modal-footer"><button type="button" class="primary-btn close-btn">关闭</button></div></div>`;
         
