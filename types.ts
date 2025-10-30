@@ -73,12 +73,24 @@ export interface 阶段 {
   项目?: 内嵌项目[];
 }
 
+export interface Report {
+  id: string;
+  type: 'plan' | 'weekly' | 'monthly';
+  title: string;
+  content: string;
+  createdAt: string; // ISO string
+  createdBy: string; // userId
+  startDate?: string;
+  endDate?: string;
+}
+
 export interface 时间轴数据 {
   id: string; // Unique project ID
   项目名称: string;
   阶段: 阶段[];
   ownerId: string;
   members: ProjectMember[];
+  reports?: Report[];
 }
 
 export type ViewType = 'vertical' | 'kanban' | 'calendar' | 'dependencies' | 'mindmap';

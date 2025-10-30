@@ -109,6 +109,8 @@ export function addEventListeners(app: ITimelineApp): void {
                 renderUI.showReportDateModal(app, action as 'weekly' | 'monthly');
             } else if (action === 'plan') {
                 handlers.handleGeneratePlanClick.call(app);
+            } else if (action === 'view') {
+                renderUI.showReportsHistoryModal(app);
             }
         }
     });

@@ -1769,6 +1769,96 @@ input.inline-edit:focus {
     border-radius: 8px;
 }
 
+/* Report History Modal */
+.report-history-modal {
+    max-width: 90vw;
+    width: 1200px;
+    height: 80vh;
+}
+.report-history-body {
+    display: flex;
+    gap: 1.5rem;
+    overflow: hidden;
+    flex-grow: 1;
+    padding-bottom: 1rem;
+}
+.report-history-list {
+    width: 350px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    border-right: 1px solid var(--border-color);
+    padding-right: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.report-list-item {
+    padding: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.report-list-item:hover, .report-list-item.active {
+    background-color: var(--secondary-color);
+    border-color: var(--accent-color-light);
+}
+.report-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.report-item-title {
+    font-weight: 600;
+}
+.report-item-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.report-item-actions .icon-btn:hover {
+    color: var(--danger-color);
+}
+.report-history-content {
+    flex-grow: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.report-content-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 1.2rem;
+}
+.report-content-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+.report-content-header h3 {
+    font-size: 1.3rem;
+    margin: 0;
+}
+.report-content-body {
+    flex-grow: 1;
+    line-height: 1.7;
+    padding-right: 0.5rem;
+}
+.report-content-body h3 { font-size: 1.2rem; margin-top: 1rem; margin-bottom: 0.5rem; }
+.report-content-body h4 { font-size: 1.1rem; margin-top: 0.75rem; margin-bottom: 0.5rem; }
+.report-content-body p { margin-bottom: 1rem; }
+.report-content-body ul { list-style-position: inside; padding-left: 1rem; margin-bottom: 1rem; }
+
 
 /* --- Kanban Board --- */
 .kanban-board {

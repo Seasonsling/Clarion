@@ -1,6 +1,6 @@
-import { getInitials, stringToColor } from './utils.js';
+import { getInitials, stringToColor, simpleMarkdownToHtml } from './utils.js';
 // FIX: Import ViewType and GanttGranularity to correctly type UI control data.
-import type { ITimelineApp, Indices, 任务, TopLevelIndices, ProjectMemberRole, User, ViewType, ChatModel } from './types.js';
+import type { ITimelineApp, Indices, 任务, TopLevelIndices, ProjectMemberRole, User, ViewType, ChatModel, Report } from './types.js';
 import * as handlers from './handlers.js';
 
 function renderAuth(app: ITimelineApp): void {
@@ -850,6 +850,107 @@ function showWeeklyPlanAssistantModal(app: ITimelineApp): void {
   setTimeout(() => modalOverlay.classList.add('visible'), 10);
 }
 
+function showReportsHistoryModal(app: ITimelineApp): void {
+    document.getElementById('report-history-modal-overlay')?.remove();
+    const modalOverlay = document.createElement('div');
+    modalOverlay.id = 'report-history-modal-overlay';
+    modalOverlay.className = 'modal-overlay';
+
+    modalOverlay.innerHTML = `
+        <div class="modal-content report-history-modal">
+            <div class="modal-header">
+                <h2>历史报告</h2>
+                <button class="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body report-history-body">
+                <div class="report-history-list"></div>
+                <div class="report-history-content">
+                    <div class="report-content-placeholder">
+                        <p>请从左侧选择一份报告查看</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modalOverlay);
+    const listEl = modalOverlay.querySelector('.report-history-list')!;
+    const contentEl = modalOverlay.querySelector('.report-history-content')!;
+    const reports = [...(app.state.timeline?.reports || [])].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const close = () => modalOverlay.remove();
+    modalOverlay.querySelector('.modal-close-btn')!.addEventListener('click', close);
+    modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) close(); });
+    
+    const canManage = app.getUserRole() === 'Admin';
+
+    if (reports.length === 0) {
+        listEl.innerHTML = '<p>暂无历史报告。</p>';
+    } else {
+        reports.forEach(report => {
+            const user = app.state.allUsers.find(u => u.id === report.createdBy);
+            const itemEl = document.createElement('div');
+            itemEl.className = 'report-list-item';
+            itemEl.dataset.reportId = report.id;
+            itemEl.innerHTML = `
+                <div class="report-item-info">
+                    <strong class="report-item-title">${report.title}</strong>
+                    <span class="report-item-meta">由 ${user?.profile.displayName || '未知用户'} 创建于 ${new Date(report.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div class="report-item-actions">
+                    ${canManage ? `<button class="icon-btn delete-btn" title="删除报告">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>` : ''}
+                </div>
+            `;
+
+            itemEl.addEventListener('click', (e) => {
+                if ((e.target as HTMLElement).closest('.delete-btn')) return;
+                
+                listEl.querySelectorAll('.report-list-item').forEach(el => el.classList.remove('active'));
+                itemEl.classList.add('active');
+
+                contentEl.innerHTML = `
+                    <div class="report-content-header">
+                        <h3>${report.title}</h3>
+                        <button class="secondary-btn copy-btn">复制原文</button>
+                    </div>
+                    <div class="report-content-body">${simpleMarkdownToHtml(report.content)}</div>
+                `;
+
+                const copyBtn = contentEl.querySelector('.copy-btn') as HTMLButtonElement;
+                copyBtn.addEventListener('click', () => {
+                    navigator.clipboard.writeText(report.content).then(() => {
+                        copyBtn.textContent = '已复制!';
+                        setTimeout(() => { copyBtn.textContent = '复制原文'; }, 2000);
+                    });
+                });
+            });
+
+            const deleteBtn = itemEl.querySelector('.delete-btn');
+            if(deleteBtn) {
+                deleteBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if(confirm(`确定要删除报告 "${report.title}" 吗？此操作不可撤销。`)) {
+                        const updatedTimeline = JSON.parse(JSON.stringify(app.state.timeline));
+                        const reportIndex = (updatedTimeline.reports || []).findIndex((r: Report) => r.id === report.id);
+                        if (reportIndex > -1) {
+                            updatedTimeline.reports.splice(reportIndex, 1);
+                            await app.saveCurrentProject(updatedTimeline);
+                            app.setState({ timeline: updatedTimeline }, false);
+                            close();
+                            showReportsHistoryModal(app);
+                        }
+                    }
+                });
+            }
+            listEl.appendChild(itemEl);
+        });
+    }
+
+    setTimeout(() => modalOverlay.classList.add('visible'), 10);
+}
+
 
 export const renderUI = {
     renderAuth,
@@ -869,4 +970,5 @@ export const renderUI = {
     showReportModal,
     showReportDateModal,
     showWeeklyPlanAssistantModal,
+    showReportsHistoryModal,
 };

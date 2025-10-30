@@ -1,4 +1,4 @@
-import type { ITimelineApp, 时间轴数据, CurrentUser, ChatMessage, 任务 } from './types.js';
+import type { ITimelineApp, 时间轴数据, CurrentUser, ChatMessage, 任务, Report } from './types.js';
 import { GoogleGenAI, Type } from "@google/genai";
 import * as api from './api.js';
 import { renderUI } from './ui.js';
@@ -633,7 +633,25 @@ Provide the report in clean, readable markdown format.`;
             model: modelName,
             contents: prompt,
         });
-        renderUI.showReportModal(this, false, response.text, reportTitle);
+        
+        const reportContent = response.text;
+        const newReport: Report = {
+            id: `report-${Date.now()}`,
+            type: period,
+            title: `${reportTitle} (${startDate} to ${endDate})`,
+            content: reportContent,
+            createdAt: new Date().toISOString(),
+            createdBy: this.state.currentUser!.id,
+            startDate,
+            endDate,
+        };
+        const updatedTimeline = JSON.parse(JSON.stringify(this.state.timeline));
+        if (!updatedTimeline.reports) updatedTimeline.reports = [];
+        updatedTimeline.reports.push(newReport);
+        await this.saveCurrentProject(updatedTimeline);
+        this.setState({ timeline: updatedTimeline }, false);
+
+        renderUI.showReportModal(this, false, reportContent, reportTitle);
     } catch (error) {
         console.error("生成报告时出错:", error);
         const reportTitle = period === 'weekly' ? '周报' : '月报';
@@ -709,7 +727,25 @@ B. 张之润 (核心技术攻坚)
             model: modelName,
             contents: prompt,
         });
-        renderUI.showReportModal(this, false, response.text, title);
+        
+        const reportContent = response.text;
+        const newReport: Report = {
+            id: `report-${Date.now()}`,
+            type: 'plan',
+            title: `周度计划 (${startDate} to ${endDate})`,
+            content: reportContent,
+            createdAt: new Date().toISOString(),
+            createdBy: this.state.currentUser!.id,
+            startDate,
+            endDate,
+        };
+        const updatedTimeline = JSON.parse(JSON.stringify(this.state.timeline));
+        if (!updatedTimeline.reports) updatedTimeline.reports = [];
+        updatedTimeline.reports.push(newReport);
+        await this.saveCurrentProject(updatedTimeline);
+        this.setState({ timeline: updatedTimeline }, false);
+
+        renderUI.showReportModal(this, false, reportContent, title);
     } catch (error) {
         console.error("生成周计划时出错:", error);
         renderUI.showReportModal(this, false, getApiErrorMessage(error, "周计划生成"), title);
